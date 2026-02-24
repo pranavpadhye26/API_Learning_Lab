@@ -1,0 +1,357 @@
+{
+    "id": "rate-limiter",
+    "title": "Design a Rate Limiter API",
+    "difficulty": "Hard",
+    "timeLimitMinutes": 30,
+    "problemStatement": "Design a RESTful API for a rate limiting service. Clients can define rate limit rules, check if a request is allowed, view usage metrics, and configure different tiers (free, pro, enterprise) with different limits.",
+    "resourceSchema": [
+        {
+            "field": "ruleId",
+            "type": "string (UUID)",
+            "required": true,
+            "constraints": "Auto-generated"
+        },
+        {
+            "field": "clientId",
+            "type": "string",
+            "required": true
+        },
+        {
+            "field": "tier",
+            "type": "\"free\" | \"pro\" | \"enterprise\"",
+            "required": true
+        },
+        {
+            "field": "maxRequests",
+            "type": "integer",
+            "required": true,
+            "constraints": "Per time window"
+        },
+        {
+            "field": "windowSeconds",
+            "type": "integer",
+            "required": true,
+            "constraints": "e.g., 60 = per minute"
+        },
+        {
+            "field": "currentCount",
+            "type": "integer",
+            "required": true,
+            "constraints": "Requests used in window"
+        },
+        {
+            "field": "remaining",
+            "type": "integer",
+            "required": true,
+            "constraints": "Requests left"
+        }
+    ],
+    "functionalRequirements": [
+        "Create and manage rate limit rules per API key",
+        "Check if a request is within rate limits",
+        "View current usage/quota for an API key",
+        "Configure rate limit tiers",
+        "Reset rate limit counters",
+        "Get rate limit headers in responses"
+    ],
+    "constraints": [
+        "Rate limits use sliding window algorithm",
+        "Different tiers have different limits",
+        "Rate limit info must be in response headers",
+        "Admin endpoints require elevated permissions"
+    ],
+    "rubric": [
+        {
+            "category": "Endpoint Coverage",
+            "maxPoints": 25,
+            "criteria": [
+                "POST /check",
+                "GET /usage/:apiKey",
+                "POST /rules",
+                "GET /rules",
+                "PUT /rules/:id",
+                "DELETE /rules/:id",
+                "POST /tiers",
+                "PUT /reset/:apiKey"
+            ],
+            "reasoning": "Eight endpoints cover rate checking, usage monitoring, rule management, tier configuration, and counter reset. The /check endpoint is the hot path — it must be fast. Management endpoints can tolerate higher latency."
+        },
+        {
+            "category": "HTTP Methods",
+            "maxPoints": 10,
+            "criteria": [
+                "Correct verbs for CRUD and actions"
+            ],
+            "reasoning": "POST /check is controversial — it's a read-like operation (checking if allowed) but it has side effects (incrementing the counter). POST is correct because the request modifies state. GET would violate HTTP semantics since GET must be side-effect-free."
+        },
+        {
+            "category": "Status Codes",
+            "maxPoints": 15,
+            "criteria": [
+                "200, 201, 204, 400, 401, 403, 404, 429"
+            ],
+            "reasoning": "429 Too Many Requests is the star of this API. It's specifically designed for rate limiting. Always include Retry-After header with 429 so clients know when to try again. Never use 403 for rate limiting — 403 means permanently forbidden."
+        },
+        {
+            "category": "Error Handling",
+            "maxPoints": 15,
+            "criteria": [
+                "Rate limit exceeded",
+                "Invalid API key",
+                "Duplicate rule",
+                "Insufficient permissions"
+            ],
+            "reasoning": "Rate limit errors should include remaining quota, reset time, and the limit itself. This transparency helps clients implement backoff. 'Invalid API key' should not reveal whether the key exists — use the same error for missing and invalid keys."
+        },
+        {
+            "category": "Authentication",
+            "maxPoints": 10,
+            "criteria": [
+                "Admin auth for management endpoints"
+            ],
+            "reasoning": "Two auth layers: API keys for /check requests (lightweight, per-request), admin tokens for management (creating rules, tiers, resetting counters). This separation prevents API consumers from modifying their own rate limits."
+        },
+        {
+            "category": "Request/Response Design",
+            "maxPoints": 15,
+            "criteria": [
+                "Rate limit headers",
+                "Usage breakdown",
+                "Retry-After header"
+            ],
+            "reasoning": "Standard headers: X-RateLimit-Limit (max requests), X-RateLimit-Remaining (requests left), X-RateLimit-Reset (UTC epoch when window resets). Include these on EVERY response, not just 429s, so clients can self-regulate before hitting the limit."
+        },
+        {
+            "category": "Query Parameters",
+            "maxPoints": 10,
+            "criteria": [
+                "Time range for usage",
+                "Filter by tier"
+            ],
+            "reasoning": "Usage queries need time ranges (?from=2024-01-01&to=2024-01-31) for analytics. Tier filtering (?tier=enterprise) helps admins manage rules across different customer segments."
+        }
+    ],
+    "defendQuestions": [
+        {
+            "id": "sliding-vs-fixed-window",
+            "question": "Your constraints mention sliding window. What's the difference between fixed window, sliding window, and token bucket? Why does the choice matter?",
+            "modelReasoning": "Fixed window (e.g., 100 requests per minute): simple but allows burst at window boundaries (99 requests at 11:59:59, 100 more at 12:00:00 = 199 in 2 seconds). Sliding window: tracks the actual last 60 seconds, smooth but more memory (stores individual timestamps). Token bucket: tokens refill at a steady rate, allows controlled bursts. Best for APIs: sliding window log (most accurate) or sliding window counter (approximation with less memory). Token bucket is best for user-facing rate limiting where occasional bursts are acceptable."
+        },
+        {
+            "id": "distributed-rate-limiting",
+            "question": "If your API runs on 5 servers behind a load balancer, how do you ensure the rate limit is enforced globally, not per-server?",
+            "modelReasoning": "Per-server limits mean a user with 100/min limit actually gets 500/min across 5 servers. Solutions: (1) Centralized counter in Redis — all servers increment/check the same key. Lua scripts ensure atomic check-and-increment. Latency: <1ms per check. (2) Consistent hashing — route the same API key to the same server always. Simpler but loses fault tolerance. (3) Approximate with eventual consistency — each server tracks locally and syncs periodically. Redis is the standard choice — it's fast enough to be in the critical path and provides atomic operations."
+        },
+        {
+            "id": "rate-limit-bypass",
+            "question": "A customer complains their legitimate traffic is being rate limited. How would you investigate and handle this without just increasing their limit?",
+            "modelReasoning": "Investigation: (1) Check /usage/:apiKey for their actual traffic pattern — is it bursty or steady? (2) Identify if they're hitting a per-endpoint limit or a global limit. (3) Check if their IP is shared (NAT/corporate proxy) causing false aggregation. Solutions: separate per-endpoint limits from global limits; offer burst allowances (110% of limit for short periods); implement request priorities (critical API calls bypass rate limits); or suggest they batch their requests. Sometimes the fix is API design, not limit increases — if they're polling, suggest webhooks instead."
+        }
+    ],
+    "modelSolution": {
+        "endpoints": [
+            {
+                "method": "POST",
+                "path": "/check",
+                "description": "Check if request is allowed",
+                "headers": [
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "apiKey": "string",
+                    "endpoint": "string"
+                },
+                "responseBody": {
+                    "allowed": true,
+                    "remaining": 99,
+                    "limit": 100,
+                    "resetAt": "ISO8601"
+                },
+                "statusCodes": [
+                    200,
+                    400,
+                    429
+                ],
+                "errorCases": [
+                    "Rate limit exceeded",
+                    "Invalid API key",
+                    "Missing endpoint"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/usage/:apiKey",
+                "description": "Get current usage for API key",
+                "headers": [
+                    "Authorization"
+                ],
+                "queryParams": [
+                    "from",
+                    "to"
+                ],
+                "responseBody": {
+                    "apiKey": "string",
+                    "tier": "string",
+                    "usage": 0,
+                    "limit": 100,
+                    "resetAt": "ISO8601"
+                },
+                "statusCodes": [
+                    200,
+                    401,
+                    404
+                ],
+                "errorCases": [
+                    "API key not found",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "POST",
+                "path": "/rules",
+                "description": "Create a rate limit rule",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "name": "string",
+                    "requests": 100,
+                    "windowSeconds": 3600,
+                    "tier": "string"
+                },
+                "responseBody": {
+                    "id": "string",
+                    "name": "string",
+                    "requests": 100,
+                    "windowSeconds": 3600
+                },
+                "statusCodes": [
+                    201,
+                    400,
+                    401,
+                    403,
+                    409
+                ],
+                "errorCases": [
+                    "Duplicate rule name",
+                    "Invalid window size",
+                    "Insufficient permissions"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/rules",
+                "description": "List all rate limit rules",
+                "headers": [
+                    "Authorization"
+                ],
+                "queryParams": [
+                    "tier"
+                ],
+                "responseBody": {
+                    "data": []
+                },
+                "statusCodes": [
+                    200,
+                    401,
+                    403
+                ],
+                "errorCases": [
+                    "Insufficient permissions"
+                ]
+            },
+            {
+                "method": "PUT",
+                "path": "/rules/:id",
+                "description": "Update a rate limit rule",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "requests": 200,
+                    "windowSeconds": 3600
+                },
+                "statusCodes": [
+                    200,
+                    400,
+                    401,
+                    403,
+                    404
+                ],
+                "errorCases": [
+                    "Rule not found",
+                    "Invalid values",
+                    "Insufficient permissions"
+                ]
+            },
+            {
+                "method": "DELETE",
+                "path": "/rules/:id",
+                "description": "Delete a rate limit rule",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    204,
+                    401,
+                    403,
+                    404
+                ],
+                "errorCases": [
+                    "Rule not found",
+                    "Insufficient permissions"
+                ]
+            },
+            {
+                "method": "POST",
+                "path": "/tiers",
+                "description": "Create a rate limit tier",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "name": "string",
+                    "defaultLimit": 100,
+                    "burstLimit": 150
+                },
+                "statusCodes": [
+                    201,
+                    400,
+                    401,
+                    403
+                ],
+                "errorCases": [
+                    "Invalid tier config",
+                    "Insufficient permissions"
+                ]
+            },
+            {
+                "method": "PUT",
+                "path": "/reset/:apiKey",
+                "description": "Reset rate limit counter for key",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    200,
+                    401,
+                    403,
+                    404
+                ],
+                "errorCases": [
+                    "API key not found",
+                    "Insufficient permissions"
+                ]
+            }
+        ],
+        "designNotes": [
+            "Return 429 Too Many Requests with Retry-After header",
+            "Include X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset in response headers",
+            "Sliding window is more accurate than fixed window",
+            "Admin vs API key auth: management uses admin tokens, check uses API keys"
+        ]
+    }
+}

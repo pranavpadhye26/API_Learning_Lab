@@ -1,0 +1,370 @@
+{
+    "id": "notification-system",
+    "title": "Design a Notification System API",
+    "difficulty": "Hard",
+    "timeLimitMinutes": 30,
+    "problemStatement": "Design a RESTful API for a notification system that supports multiple channels (in-app, email, push). Users can view notifications, mark them as read, configure notification preferences per channel, and subscribe/unsubscribe from notification categories.",
+    "resourceSchema": [
+        {
+            "field": "notificationId",
+            "type": "string (UUID)",
+            "required": true,
+            "constraints": "Auto-generated"
+        },
+        {
+            "field": "userId",
+            "type": "string",
+            "required": true
+        },
+        {
+            "field": "channel",
+            "type": "\"in-app\" | \"email\" | \"push\"",
+            "required": true
+        },
+        {
+            "field": "category",
+            "type": "string",
+            "required": true,
+            "constraints": "e.g., marketing, security, updates"
+        },
+        {
+            "field": "title",
+            "type": "string",
+            "required": true
+        },
+        {
+            "field": "body",
+            "type": "string",
+            "required": true
+        },
+        {
+            "field": "read",
+            "type": "boolean",
+            "required": true,
+            "constraints": "Defaults to false"
+        },
+        {
+            "field": "createdAt",
+            "type": "ISO 8601 datetime",
+            "required": true
+        }
+    ],
+    "functionalRequirements": [
+        "List notifications with filters (read/unread, category, channel)",
+        "Get unread notification count",
+        "Mark single or bulk notifications as read",
+        "Get and update notification preferences (per category per channel)",
+        "Subscribe/unsubscribe from notification categories",
+        "Delete notifications"
+    ],
+    "constraints": [
+        "Notifications can be sent via multiple channels simultaneously",
+        "Users should control which channels they receive each category on",
+        "Bulk operations should be atomic",
+        "System notifications cannot be unsubscribed from"
+    ],
+    "rubric": [
+        {
+            "category": "Endpoint Coverage",
+            "maxPoints": 25,
+            "criteria": [
+                "GET /notifications",
+                "GET /notifications/count",
+                "PUT /notifications/:id/read",
+                "PUT /notifications/read",
+                "DELETE /notifications/:id",
+                "GET /preferences",
+                "PUT /preferences",
+                "POST /subscriptions",
+                "DELETE /subscriptions/:category"
+            ],
+            "reasoning": "Nine endpoints span three domains: notification CRUD, read state management, and preference/subscription management. Separating these concerns prevents a bloated notification endpoint that tries to do everything."
+        },
+        {
+            "category": "HTTP Methods",
+            "maxPoints": 10,
+            "criteria": [
+                "Correct verbs for each operation"
+            ],
+            "reasoning": "PUT for mark-as-read (updating existing state), DELETE for unsubscribe (removing a resource), POST for subscribe (creating a new resource). The key insight: marking as read is NOT creating something — it's updating state, so PUT is correct, not POST."
+        },
+        {
+            "category": "Status Codes",
+            "maxPoints": 15,
+            "criteria": [
+                "200, 204, 400, 401, 403, 404, 422"
+            ],
+            "reasoning": "403 for attempting to unsubscribe from system notifications — the user IS authenticated (not 401) but the action is forbidden by business rules. 422 for invalid preference configurations."
+        },
+        {
+            "category": "Error Handling",
+            "maxPoints": 15,
+            "criteria": [
+                "Cannot unsubscribe system notifications",
+                "Invalid channel",
+                "Notification not found"
+            ],
+            "reasoning": "The system notification constraint is the most interesting error case. Return 403 with a clear message: 'Security notifications cannot be disabled.' This is an authorization-level restriction, not a validation error."
+        },
+        {
+            "category": "Authentication",
+            "maxPoints": 10,
+            "criteria": [
+                "All operations require auth"
+            ],
+            "reasoning": "Notifications are inherently user-specific. Every endpoint needs auth to know WHOSE notifications to show. No public notification endpoints make sense."
+        },
+        {
+            "category": "Pagination",
+            "maxPoints": 10,
+            "criteria": [
+                "Notification listing pagination"
+            ],
+            "reasoning": "Notifications accumulate over time — pagination is essential. Consider cursor-based pagination since notifications arrive in real-time. Include unread count in the list response to avoid a separate /count call."
+        },
+        {
+            "category": "Query Parameters",
+            "maxPoints": 10,
+            "criteria": [
+                "Filter by read status, category, channel"
+            ],
+            "reasoning": "Composable filters: ?read=false&category=orders shows unread order notifications. ?channel=email shows email notifications only. These filters help users triage their notification inbox."
+        },
+        {
+            "category": "Request/Response Design",
+            "maxPoints": 5,
+            "criteria": [
+                "Bulk mark-read payload",
+                "Preference structure"
+            ],
+            "reasoning": "Bulk mark-read accepts an array of IDs for efficiency. Alternative: mark ALL as read with no body. Preferences use a matrix structure: each category maps to enabled channels, giving granular control."
+        }
+    ],
+    "defendQuestions": [
+        {
+            "id": "push-vs-pull",
+            "question": "Should new notifications be pushed to the client in real-time, or should the client poll the /notifications endpoint? What are the tradeoffs?",
+            "modelReasoning": "Polling every 5 seconds wastes bandwidth when there are no new notifications (99% of polls return nothing). Real-time push via WebSocket or Server-Sent Events (SSE) is more efficient — the server only sends data when notifications exist. SSE is simpler than WebSocket for one-directional push. Best approach: SSE for real-time delivery + REST API for historical listing and management. The REST API is the source of truth; SSE is the notification channel."
+        },
+        {
+            "id": "preference-granularity",
+            "question": "Your preference model lets users control channels per category. What if a user wants to disable ALL notifications? Should you add a global mute, or rely on per-category settings?",
+            "modelReasoning": "A global mute (PUT /preferences/mute with {muted: true}) is a UX essential — asking users to disable 20+ categories individually is painful. But it raises API design questions: does muting override system notifications? (Usually yes for push/email, no for in-app). Does unmuting restore previous preferences, or reset to defaults? Store mute as a separate flag that overrides per-category settings without modifying them, so unmuting restores the previous configuration."
+        },
+        {
+            "id": "notification-deduplication",
+            "question": "If a notification is sent to both email AND in-app, should it appear as one notification or two in the API?",
+            "modelReasoning": "One logical notification with multiple delivery channels. The notification entity has an array of channels it was sent to. Marking the in-app notification as read should NOT mark the email as read (they're different delivery mechanisms). But GET /notifications should show one entry with channels: ['email', 'inApp'] rather than duplicate entries. This avoids confusing users with seemingly repeated notifications."
+        }
+    ],
+    "modelSolution": {
+        "endpoints": [
+            {
+                "method": "GET",
+                "path": "/notifications",
+                "description": "List notifications with filters and pagination",
+                "headers": [
+                    "Authorization"
+                ],
+                "queryParams": [
+                    "page",
+                    "limit",
+                    "read",
+                    "category",
+                    "channel"
+                ],
+                "responseBody": {
+                    "data": [],
+                    "total": 0,
+                    "page": 1,
+                    "unreadCount": 0
+                },
+                "statusCodes": [
+                    200,
+                    400,
+                    401
+                ],
+                "errorCases": [
+                    "Invalid filter values",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/notifications/count",
+                "description": "Get unread notification count",
+                "headers": [
+                    "Authorization"
+                ],
+                "responseBody": {
+                    "unread": 0,
+                    "byCategory": {}
+                },
+                "statusCodes": [
+                    200,
+                    401
+                ],
+                "errorCases": [
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "PUT",
+                "path": "/notifications/:id/read",
+                "description": "Mark a single notification as read",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    200,
+                    401,
+                    404
+                ],
+                "errorCases": [
+                    "Notification not found",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "PUT",
+                "path": "/notifications/read",
+                "description": "Bulk mark notifications as read",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "ids": [
+                        "string"
+                    ]
+                },
+                "statusCodes": [
+                    200,
+                    400,
+                    401
+                ],
+                "errorCases": [
+                    "Empty IDs array",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "DELETE",
+                "path": "/notifications/:id",
+                "description": "Delete a notification",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    204,
+                    401,
+                    404
+                ],
+                "errorCases": [
+                    "Notification not found",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/preferences",
+                "description": "Get notification preferences",
+                "headers": [
+                    "Authorization"
+                ],
+                "responseBody": {
+                    "preferences": []
+                },
+                "statusCodes": [
+                    200,
+                    401
+                ],
+                "errorCases": [
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "PUT",
+                "path": "/preferences",
+                "description": "Update notification preferences",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "category": "string",
+                    "channels": {
+                        "email": true,
+                        "push": true,
+                        "inApp": true
+                    }
+                },
+                "statusCodes": [
+                    200,
+                    400,
+                    401,
+                    422
+                ],
+                "errorCases": [
+                    "Invalid category",
+                    "Invalid channel",
+                    "Cannot disable system notifications",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "POST",
+                "path": "/subscriptions",
+                "description": "Subscribe to a notification category",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "category": "string",
+                    "channels": [
+                        "email",
+                        "push"
+                    ]
+                },
+                "statusCodes": [
+                    201,
+                    400,
+                    401,
+                    409
+                ],
+                "errorCases": [
+                    "Already subscribed",
+                    "Invalid category",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "DELETE",
+                "path": "/subscriptions/:category",
+                "description": "Unsubscribe from a notification category",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    204,
+                    401,
+                    403,
+                    404
+                ],
+                "errorCases": [
+                    "Cannot unsubscribe from system notifications",
+                    "Not subscribed",
+                    "Missing or invalid token"
+                ]
+            }
+        ],
+        "designNotes": [
+            "Separate 'mark as read' from notification CRUD — it's a state change, use PUT",
+            "Bulk operations accept an array of IDs for efficiency",
+            "Preferences are per-category per-channel — gives users granular control",
+            "System notifications (e.g., security alerts) should be non-unsubscribable — return 403",
+            "Include unread count in list response to avoid a separate API call"
+        ]
+    }
+}

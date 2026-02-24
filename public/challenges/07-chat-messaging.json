@@ -1,0 +1,354 @@
+{
+    "id": "chat-messaging",
+    "title": "Design a Chat Messaging API",
+    "difficulty": "Medium",
+    "timeLimitMinutes": 25,
+    "problemStatement": "Design a RESTful API for a real-time chat application. Users can create conversations (1-on-1 or group), send messages, list conversations, and read message history. The API must handle read receipts and typing indicators.",
+    "resourceSchema": [
+        {
+            "field": "conversationId",
+            "type": "string (UUID)",
+            "required": true,
+            "constraints": "Auto-generated"
+        },
+        {
+            "field": "type",
+            "type": "\"direct\" | \"group\"",
+            "required": true
+        },
+        {
+            "field": "participants",
+            "type": "string[]",
+            "required": true,
+            "constraints": "User IDs"
+        },
+        {
+            "field": "messageId",
+            "type": "string (UUID)",
+            "required": true,
+            "constraints": "Auto-generated"
+        },
+        {
+            "field": "message.senderId",
+            "type": "string",
+            "required": true
+        },
+        {
+            "field": "message.content",
+            "type": "string",
+            "required": true,
+            "constraints": "Max 5000 characters"
+        },
+        {
+            "field": "message.sentAt",
+            "type": "ISO 8601 datetime",
+            "required": true
+        },
+        {
+            "field": "message.readBy",
+            "type": "string[]",
+            "required": false,
+            "constraints": "User IDs who read this"
+        }
+    ],
+    "functionalRequirements": [
+        "Create a conversation (direct or group)",
+        "Send a message to a conversation",
+        "List user's conversations with last message preview",
+        "Get message history for a conversation with pagination",
+        "Mark messages as read",
+        "Add/remove members from group conversations"
+    ],
+    "constraints": [
+        "Users must be members of a conversation to send/read messages",
+        "Message history should be paginated (cursor-based preferred)",
+        "Direct conversations between two users should be unique",
+        "Group conversations need at least 2 members"
+    ],
+    "rubric": [
+        {
+            "category": "Endpoint Coverage",
+            "maxPoints": 25,
+            "criteria": [
+                "POST /conversations",
+                "GET /conversations",
+                "GET /conversations/:id/messages",
+                "POST /conversations/:id/messages",
+                "PUT /conversations/:id/read",
+                "POST /conversations/:id/members",
+                "DELETE /conversations/:id/members/:userId"
+            ],
+            "reasoning": "Seven endpoints cover conversation lifecycle and messaging. Nested routes under /conversations/:id express clear ownership. Read receipts and member management are separate operations with distinct HTTP methods."
+        },
+        {
+            "category": "HTTP Methods",
+            "maxPoints": 10,
+            "criteria": [
+                "POST for creating, PUT for updates, DELETE for removal"
+            ],
+            "reasoning": "PUT for read receipts is correct — you're updating existing state (last read position), not creating a new resource. POST for messages creates a new message resource. DELETE for member removal is idempotent."
+        },
+        {
+            "category": "Status Codes",
+            "maxPoints": 15,
+            "criteria": [
+                "200, 201, 204, 400, 401, 403, 404, 409"
+            ],
+            "reasoning": "403 for non-members trying to read messages is critical — don't reveal message content. 409 for duplicate direct conversations tells the client to use the existing one instead of creating a new one."
+        },
+        {
+            "category": "Error Handling",
+            "maxPoints": 15,
+            "criteria": [
+                "Not a member",
+                "Conversation not found",
+                "Duplicate direct conversation",
+                "Group too small"
+            ],
+            "reasoning": "Access control errors (not a member) must be handled at every endpoint that touches conversation data. For duplicate direct conversations, return 409 with the existing conversation ID so the client can redirect."
+        },
+        {
+            "category": "Authentication",
+            "maxPoints": 10,
+            "criteria": [
+                "All operations require auth"
+            ],
+            "reasoning": "Every chat operation needs authentication — messages are private by nature. Even listing conversations requires knowing WHO is asking. No public endpoints in a messaging API."
+        },
+        {
+            "category": "Pagination",
+            "maxPoints": 15,
+            "criteria": [
+                "Cursor-based pagination for messages",
+                "Offset pagination for conversations"
+            ],
+            "reasoning": "Messages MUST use cursor-based pagination because new messages arrive constantly. Offset would cause duplicates. Conversations can use offset since they change less frequently. Cursor typically uses the last message's timestamp or ID."
+        },
+        {
+            "category": "Request/Response Design",
+            "maxPoints": 10,
+            "criteria": [
+                "Last message preview in conversation list",
+                "Unread count"
+            ],
+            "reasoning": "Including lastMessage and unreadCount in the conversation list avoids N+1 queries — without them, the client would need to fetch each conversation's messages separately just to show the inbox."
+        }
+    ],
+    "defendQuestions": [
+        {
+            "id": "rest-vs-websocket",
+            "question": "You designed a REST API for chat. How would you add real-time message delivery? Can REST handle this, or do you need WebSockets?",
+            "modelReasoning": "REST alone requires polling (client checks for new messages every N seconds). This wastes bandwidth and adds latency. WebSockets provide real-time push — the server sends messages to connected clients instantly. Best architecture: REST API for CRUD operations (create conversation, fetch history, mark read) + WebSocket connection for real-time events (new message, typing indicator, online status). REST for data management, WebSocket for live updates. This hybrid approach is what Slack, Discord, and WhatsApp use."
+        },
+        {
+            "id": "read-receipts-scale",
+            "question": "In a group chat with 50 members, how do read receipts work at scale? Does each member generate a separate API call?",
+            "modelReasoning": "50 members × every message = potentially thousands of read receipt updates. Solutions: (1) Batch read receipts — PUT /conversations/:id/read marks ALL messages up to a timestamp as read, not individual messages. (2) Send read receipts via WebSocket, not REST, to avoid HTTP overhead. (3) Don't store per-message read status — store per-user last_read_at timestamp and derive read status. (4) For large groups, show 'Read by 12 others' instead of individual names to reduce data."
+        },
+        {
+            "id": "message-ordering",
+            "question": "How do you guarantee messages appear in the correct order, especially when multiple users send messages at the same time?",
+            "modelReasoning": "Server-assigned timestamps (not client timestamps) determine order — clients have unreliable clocks. Use server UTC timestamp at insertion time. For concurrent messages (same millisecond), use a monotonically increasing ID as tiebreaker. Store messages with (conversation_id, created_at, message_id) and query with ORDER BY created_at ASC, id ASC. Client-side: insert messages based on server timestamp, re-sort if a delayed message arrives out of order."
+        }
+    ],
+    "modelSolution": {
+        "endpoints": [
+            {
+                "method": "POST",
+                "path": "/conversations",
+                "description": "Create a conversation (direct or group)",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "type": "direct|group",
+                    "memberIds": [
+                        "string"
+                    ],
+                    "name": "string"
+                },
+                "responseBody": {
+                    "id": "string",
+                    "type": "direct",
+                    "name": "string",
+                    "members": [],
+                    "createdAt": "ISO8601"
+                },
+                "statusCodes": [
+                    201,
+                    400,
+                    401,
+                    409
+                ],
+                "errorCases": [
+                    "Direct conversation already exists",
+                    "Group needs at least 2 members",
+                    "Member not found",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/conversations",
+                "description": "List current user's conversations",
+                "headers": [
+                    "Authorization"
+                ],
+                "queryParams": [
+                    "page",
+                    "limit"
+                ],
+                "responseBody": {
+                    "data": [],
+                    "total": 0,
+                    "page": 1
+                },
+                "statusCodes": [
+                    200,
+                    401
+                ],
+                "errorCases": [
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/conversations/:id/messages",
+                "description": "Get message history with cursor-based pagination",
+                "headers": [
+                    "Authorization"
+                ],
+                "queryParams": [
+                    "cursor",
+                    "limit"
+                ],
+                "responseBody": {
+                    "data": [],
+                    "nextCursor": "string",
+                    "hasMore": true
+                },
+                "statusCodes": [
+                    200,
+                    401,
+                    403,
+                    404
+                ],
+                "errorCases": [
+                    "Conversation not found",
+                    "Not a member",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "POST",
+                "path": "/conversations/:id/messages",
+                "description": "Send a message to a conversation",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "body": "string",
+                    "type": "text"
+                },
+                "responseBody": {
+                    "id": "string",
+                    "body": "string",
+                    "sender": "string",
+                    "createdAt": "ISO8601"
+                },
+                "statusCodes": [
+                    201,
+                    400,
+                    401,
+                    403,
+                    404
+                ],
+                "errorCases": [
+                    "Conversation not found",
+                    "Not a member",
+                    "Empty message body",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "PUT",
+                "path": "/conversations/:id/read",
+                "description": "Mark messages as read up to a timestamp",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "lastReadAt": "ISO8601"
+                },
+                "statusCodes": [
+                    200,
+                    401,
+                    403,
+                    404
+                ],
+                "errorCases": [
+                    "Conversation not found",
+                    "Not a member",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "POST",
+                "path": "/conversations/:id/members",
+                "description": "Add a member to a group conversation",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "userId": "string"
+                },
+                "statusCodes": [
+                    201,
+                    400,
+                    401,
+                    403,
+                    404,
+                    409
+                ],
+                "errorCases": [
+                    "Not a group conversation",
+                    "User already a member",
+                    "Conversation not found",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "DELETE",
+                "path": "/conversations/:id/members/:userId",
+                "description": "Remove a member from a group conversation",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    204,
+                    400,
+                    401,
+                    403,
+                    404
+                ],
+                "errorCases": [
+                    "Not a group conversation",
+                    "Would leave group empty",
+                    "Not a member",
+                    "Missing or invalid token"
+                ]
+            }
+        ],
+        "designNotes": [
+            "Use cursor-based pagination for messages — offset pagination breaks when new messages arrive",
+            "Include lastMessage preview and unreadCount in conversation list for efficient UI rendering",
+            "Direct conversations should be unique per user pair — use 409 if already exists and return existing",
+            "Read receipts use PUT (updating state) not POST (not creating a resource)",
+            "Member management uses nested routes: /conversations/:id/members"
+        ]
+    }
+}

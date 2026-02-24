@@ -1,0 +1,225 @@
+{
+    "lessonId": "auth-bearer",
+    "title": "Bearer Token Authentication",
+    "description": "Understand how APIs use Authorization headers and bearer tokens to protect endpoints.",
+    "category": "Authentication",
+    "successCodes": [
+        200
+    ],
+    "objective": "Understand how Bearer token authentication works — the most common way modern APIs protect their endpoints from unauthorized access.",
+    "willLearn": [
+        "How the Authorization header carries credentials with every request",
+        "The difference between 401 Unauthorized (no/bad credentials) and 403 Forbidden (valid credentials, insufficient permissions)",
+        "Why tokens are used instead of sending username/password with every request"
+    ],
+    "steps": [
+        {
+            "id": "send-authenticated",
+            "title": "Send an authenticated request",
+            "conceptNote": "Most real APIs require proof of identity. Bearer tokens are like digital ID cards — you attach one to every request to prove who you are.",
+            "instruction": "Click 'Send Request' with the default Authorization header. You should see your profile data — the token proved your identity.",
+            "expected": {
+                "status": 200,
+                "method": "GET"
+            },
+            "reasoning": {
+                "whyCorrect": "200 OK confirms the token is valid and the server trusts your identity. The Authorization header carries your credentials without exposing your password in every request.",
+                "whyNotAlternative": "You might wonder why not send username/password directly each time. Tokens are better because: (1) passwords don't travel over the wire repeatedly, (2) tokens can expire independently of the password, (3) tokens can carry scoped permissions (read-only vs admin), (4) tokens can be revoked without changing the password.",
+                "realWorldNote": "In production, this token would be a JWT signed by the server. The server verifies the signature without hitting a database — that's what makes token auth stateless and scalable."
+            }
+        },
+        {
+            "id": "remove-auth",
+            "title": "Remove the Authorization header",
+            "conceptNote": "Without authentication, the server has no idea who you are. It can't return your private data to a stranger — that would be a security disaster.",
+            "instruction": "Delete the Authorization header entirely and send. You get 401 Unauthorized — the server doesn't know who you are.",
+            "expected": {
+                "status": 401,
+                "method": "GET"
+            },
+            "hint": "Click the ✕ button next to the Authorization header to remove it.",
+            "reasoning": {
+                "whyCorrect": "401 Unauthorized means 'I need credentials and you didn't provide any.' The name is slightly misleading — it's really 'unauthenticated.' The server has no idea who made this request.",
+                "whyNotAlternative": "403 Forbidden would be wrong here. 403 means 'I know who you are, but you don't have permission.' With no token at all, the server can't even identify you — that's 401, not 403. This distinction is critical in API design and frequently asked in interviews.",
+                "realWorldNote": "401 responses should include a WWW-Authenticate header telling the client which auth scheme to use (e.g., WWW-Authenticate: Bearer). This is often skipped in practice but is part of the HTTP spec."
+            }
+        },
+        {
+            "id": "wrong-token",
+            "title": "Use an invalid token",
+            "conceptNote": "Providing a token isn't enough — the server verifies it's valid. Invalid, expired, or tampered tokens are rejected just like missing ones.",
+            "instruction": "Add back the Authorization header but use 'Bearer wrong-token' as the value. The server still returns 401 — the token exists but isn't valid.",
+            "expected": {
+                "status": 401,
+                "method": "GET"
+            },
+            "hint": "Set the Authorization header value to 'Bearer wrong-token'.",
+            "reasoning": {
+                "whyCorrect": "Still 401. Even though a token was provided, it's invalid — the server can't verify identity from a garbage token. An expired token also gets 401, not 403.",
+                "whyNotAlternative": "Some developers use 403 for invalid tokens, thinking 'credentials were provided but wrong.' This is incorrect per HTTP semantics. 401 covers ALL authentication failures: missing, malformed, expired, or invalid. 403 is ONLY for valid credentials with insufficient permissions.",
+                "realWorldNote": "Be careful about error messages for 401. Saying 'invalid token' vs 'token not found' vs 'token expired' can leak information to attackers. Many APIs return a generic 'Authentication required' message for all 401 cases to prevent token enumeration attacks."
+            }
+        },
+        {
+            "id": "wrong-format",
+            "title": "Use wrong authorization format",
+            "conceptNote": "The 'Bearer ' prefix isn't optional decoration — it tells the server which authentication scheme to use. HTTP supports multiple schemes (Bearer, Basic, API Key).",
+            "instruction": "Try setting the Authorization header to just 'demo-token' without the 'Bearer ' prefix. The server rejects it — the format matters.",
+            "expected": {
+                "status": 401,
+                "method": "GET"
+            },
+            "hint": "Set Authorization to 'demo-token' (without 'Bearer ' prefix).",
+            "reasoning": {
+                "whyCorrect": "The 'Bearer' prefix is part of the HTTP spec (RFC 6750). It tells the server WHICH authentication scheme is being used. Without it, the server can't parse the header correctly, even if the token itself is valid.",
+                "whyNotAlternative": "Some APIs accept tokens without the 'Bearer' prefix for convenience. This is a design tradeoff: strict adherence to RFC vs developer friendliness. The problem with being lenient is that it makes it harder to support multiple auth schemes later (Bearer, Basic, API key, etc.).",
+                "realWorldNote": "The Authorization header supports multiple schemes: 'Bearer <token>' for OAuth/JWT, 'Basic <base64>' for username:password, 'ApiKey <key>' for API keys. The prefix is what lets the server route to the correct authentication handler."
+            }
+        },
+        {
+            "id": "restore-success",
+            "title": "Restore the correct token",
+            "conceptNote": "Authentication is a multi-step check: correct format + valid token + sufficient permissions. All must pass for the request to succeed.",
+            "instruction": "Set Authorization back to 'Bearer demo-token' and confirm you get 200 OK with your profile data.",
+            "expected": {
+                "status": 200,
+                "method": "GET"
+            },
+            "hint": "The correct value is exactly: Bearer demo-token (with a space between Bearer and the token).",
+            "reasoning": {
+                "whyCorrect": "With the correct format (Bearer prefix) and a valid token, the server authenticates you successfully. This confirms the full auth flow: format check → token validation → identity resolution → data return.",
+                "whyNotAlternative": "If this returned 403 instead of 200, it would mean your token is valid but lacks permission for this endpoint. That's an authorization failure, not an authentication failure. The distinction: authentication = who are you?, authorization = are you allowed to do this?",
+                "realWorldNote": "Token-based auth is stateless — the server doesn't store session data. This is why JWTs contain the user's info (claims) encoded in the token itself. The tradeoff: JWTs can't be instantly revoked. If a user's token is compromised, it's valid until expiration unless you implement a token blacklist (which adds state back)."
+            }
+        }
+    ],
+    "tradeoffCards": [
+        {
+            "id": "401-vs-403",
+            "title": "401 Unauthorized vs 403 Forbidden: When to use each?",
+            "optionA": {
+                "label": "401 Unauthorized",
+                "pros": [
+                    "Clear signal that authentication is required",
+                    "Clients know to prompt for login or refresh the token",
+                    "Follows RFC 7235 — standard HTTP semantics"
+                ],
+                "cons": [
+                    "Name is confusing ('Unauthorized' sounds like authorization)",
+                    "Doesn't tell the client WHY auth failed (expired? invalid? missing?)",
+                    "Some frameworks auto-redirect to login on 401, which breaks API clients"
+                ]
+            },
+            "optionB": {
+                "label": "403 Forbidden",
+                "pros": [
+                    "Clearly means 'you cannot do this'",
+                    "Tells authenticated users they lack specific permissions",
+                    "Useful for role-based access control (admin-only endpoints)"
+                ],
+                "cons": [
+                    "Should not be used for missing authentication",
+                    "Can leak information (attacker learns the resource exists)",
+                    "Some teams misuse 403 for invalid tokens"
+                ]
+            },
+            "whenToChoose": {
+                "a": "Use 401 when the request has NO credentials, INVALID credentials, or EXPIRED credentials. The client should authenticate or re-authenticate.",
+                "b": "Use 403 when the client IS authenticated (valid token) but lacks PERMISSION for this specific action. Example: a regular user trying to access an admin-only endpoint."
+            },
+            "failureScenario": "If you return 403 for expired tokens, the client thinks 'I'm logged in but not allowed' instead of 'I need to refresh my token.' The user sees 'Access Denied' instead of being prompted to re-login. The fix: always return 401 for auth failures, 403 only for permission failures."
+        },
+        {
+            "id": "jwt-vs-session",
+            "title": "JWT Tokens vs Server Sessions: Which is better?",
+            "optionA": {
+                "label": "JWT (Stateless Tokens)",
+                "pros": [
+                    "No server-side storage needed — scales horizontally",
+                    "Token contains user info (claims), no DB lookup per request",
+                    "Works across microservices — any service can verify the signature"
+                ],
+                "cons": [
+                    "Cannot be instantly revoked (valid until expiration)",
+                    "Token size grows with claims (sent with every request)",
+                    "Secret rotation requires invalidating all existing tokens"
+                ]
+            },
+            "optionB": {
+                "label": "Server Sessions (Stateful)",
+                "pros": [
+                    "Instantly revocable — just delete the session",
+                    "Small cookie size (just a session ID)",
+                    "Server has full control over session data"
+                ],
+                "cons": [
+                    "Requires server-side session store (Redis, DB)",
+                    "Harder to scale — session must be accessible from any server",
+                    "Doesn't work well across microservices without shared session store"
+                ]
+            },
+            "whenToChoose": {
+                "a": "Use JWTs for APIs consumed by mobile apps, SPAs, or microservices where statelessness and horizontal scaling matter. Pair with short expiration + refresh tokens.",
+                "b": "Use server sessions for traditional web apps where instant revocation is critical (banking, admin panels). The server-side store gives you full control."
+            },
+            "failureScenario": "Using JWTs with long expiration (24 hours) for a banking app means a compromised token can't be revoked for a full day. Using sessions for a mobile app with millions of users means your Redis instance becomes a single point of failure. Match the auth strategy to the use case."
+        }
+    ],
+    "sandboxPrompts": [
+        {
+            "prompt": "Try using 'Basic demo-token' instead of 'Bearer demo-token'",
+            "hint": "Basic is a different auth scheme — how does the server respond?"
+        },
+        {
+            "prompt": "What happens if you add a space before the token: 'Bearer  demo-token'?",
+            "hint": "Extra whitespace might break token parsing."
+        },
+        {
+            "prompt": "Try changing the path from /profile to /users",
+            "hint": "Different endpoints may have different auth requirements."
+        }
+    ],
+    "takeaways": [
+        "The Authorization header format is 'Bearer <token>' — the word 'Bearer' followed by a space and the token string",
+        "401 means 'I don't know who you are' (missing or invalid credentials), while 403 means 'I know who you are but you can't do this'",
+        "Tokens are like temporary key cards — they prove identity without exposing the password on every request"
+    ],
+    "interviewNotes": [
+        "Bearer tokens are typically JWTs (JSON Web Tokens) that contain encoded user info and are signed by the server to prevent tampering",
+        "Token lifecycle: login returns a token → client stores it → sends it with every request → token expires → client re-authenticates",
+        "Never send tokens in URL query parameters — they end up in server logs and browser history. Always use the Authorization header"
+    ],
+    "interviewExplanation": "For API authentication, I use Bearer tokens in the Authorization header. The flow works like this: the client first authenticates (usually with a POST to /login with credentials), receives a token (typically a JWT), and then includes 'Authorization: Bearer <token>' in every subsequent request. The server validates the token on each request — if it's missing, you get 401; if it's expired or invalid, also 401. This is stateless — the server doesn't need to track sessions, it just verifies the token signature. I always store tokens securely (httpOnly cookies or secure storage), never in localStorage for sensitive apps, and implement token refresh flows for long-lived sessions.",
+    "allowedMethods": [
+        "GET",
+        "POST"
+    ],
+    "defaultRequest": {
+        "method": "GET",
+        "path": "/profile",
+        "headers": {
+            "Authorization": "Bearer demo-token",
+            "Accept": "application/json"
+        },
+        "query": {},
+        "body": ""
+    },
+    "breakItMistakes": [
+        {
+            "label": "Missing Authorization",
+            "tooltip": "Removing the Authorization header causes a 401 error",
+            "apply": {
+                "removeHeader": "Authorization"
+            }
+        },
+        {
+            "label": "Invalid token",
+            "tooltip": "Using a wrong token value causes a 401 error",
+            "apply": {
+                "setHeader": {
+                    "Authorization": "Bearer wrong-token"
+                }
+            }
+        }
+    ]
+}

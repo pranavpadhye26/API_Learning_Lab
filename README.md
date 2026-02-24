@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# API Learning Lab
+
+An interactive web application that teaches API concepts through animated request flows and a hands-on request sandbox.
+
+## Tech Stack
+
+- **Next.js 15** (App Router) + TypeScript
+- **Tailwind CSS** for styling
+- **Framer Motion** for animations
+- **Monaco Editor** for JSON body editing
+- **Zod** for request validation
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+src/
+├── app/
+│   ├── api/simulate/route.ts   # Scenario engine API endpoint
+│   ├── globals.css              # Design tokens + theme
+│   ├── layout.tsx               # Root layout with Inter font
+│   └── page.tsx                 # Main app page (3-pane layout)
+├── components/
+│   ├── LessonSidebar.tsx        # Lesson navigation + progress
+│   ├── TopBar.tsx               # Title bar + progress dots
+│   ├── FlowPanel.tsx            # Animated 7-stage request pipeline
+│   ├── RequestBuilder.tsx       # Method/path/headers/query/body builder
+│   ├── ResponseViewer.tsx       # Status code + body/headers tabs
+│   ├── TeachingDrawer.tsx       # Slide-in explanation panel
+│   ├── KeyValueEditor.tsx       # Reusable key-value pair editor
+│   └── CodeGenTabs.tsx          # curl/fetch/axios/python code gen
+├── hooks/
+│   └── useLessonState.ts       # State management + localStorage
+└── lib/
+    ├── types.ts                 # Shared TypeScript types
+    └── lessons/                 # Scenario engine handlers
+        ├── get-query-basics.ts
+        ├── post-json-validation.ts
+        ├── auth-bearer.ts
+        ├── pagination-filtering.ts
+        └── cors-preflight.ts
+public/
+└── lessons/                     # Lesson JSON definitions
+    ├── get-query-basics.json
+    ├── post-json-validation.json
+    ├── auth-bearer.json
+    ├── pagination-filtering.json
+    └── cors-preflight.json
+```
 
-## Learn More
+## Lessons
 
-To learn more about Next.js, take a look at the following resources:
+| # | Lesson | Concept |
+|---|--------|---------|
+| 1 | GET Query Basics | Query params, pagination |
+| 2 | POST JSON Validation | Body validation, Content-Type |
+| 3 | Bearer Token Auth | Authorization header, tokens |
+| 4 | Pagination & Filtering | Paginated results, filters |
+| 5 | CORS & Preflight | Cross-origin requests, OPTIONS |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Features
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Animated Flow Panel** — Watch your request travel through 7 stages (client → server → auth → validate → service → db → response)
+- **Interactive Request Builder** — Edit method, path, headers, query params, and JSON body
+- **Break-it Mode** — Inject common mistakes to learn from errors
+- **Code Generation** — Auto-generated curl, fetch, axios, and Python code
+- **Teaching Drawer** — Explains every response with fix steps and common mistakes
+- **Progress Tracking** — localStorage-based progress with checkmarks

@@ -1,0 +1,155 @@
+{
+    "lessonId": "cors-preflight",
+    "title": "CORS & Preflight Requests",
+    "description": "Understand Cross-Origin Resource Sharing, when browsers send preflight OPTIONS requests, and how to configure CORS headers.",
+    "category": "Security",
+    "successCodes": [
+        200
+    ],
+    "objective": "Understand why browsers block cross-origin requests by default, how CORS headers tell the browser which origins are allowed, and when preflight requests happen.",
+    "willLearn": [
+        "What the Same-Origin Policy is and why browsers enforce it",
+        "How the Origin header and Access-Control-Allow-Origin response header work together",
+        "When and why browsers send automatic preflight OPTIONS requests before the real request"
+    ],
+    "steps": [
+        {
+            "id": "simple-cors",
+            "title": "Send a simple cross-origin request",
+            "conceptNote": "Browsers block cross-origin requests by default for security. CORS headers are the server's way of saying 'this origin is allowed to access my data.'",
+            "instruction": "Send the default request with Origin: http://localhost:3000. The server responds with 200 and includes Access-Control-Allow-Origin in the response headers — this origin is allowed.",
+            "expected": {
+                "status": 200,
+                "method": "GET"
+            },
+            "reasoning": {
+                "whyCorrect": "The server checks the Origin header against its allowlist and responds with Access-Control-Allow-Origin: http://localhost:3000. The browser sees this match and allows the response to reach your JavaScript code.",
+                "whyNotAlternative": "Setting Access-Control-Allow-Origin: * (wildcard) would also work but has a critical limitation — wildcard forbids sending credentials (cookies, auth headers). For authenticated APIs, you MUST echo the specific allowed origin.",
+                "realWorldNote": "CORS is a BROWSER-only security feature. Server-to-server requests (like from your Node.js backend to a third-party API) are never blocked by CORS. This is why Postman and curl always work — they're not browsers."
+            }
+        },
+        {
+            "id": "foreign-origin",
+            "title": "Try a foreign origin",
+            "conceptNote": "CORS prevents malicious websites from making API requests on behalf of your logged-in users — this is what stops evil-site.com from reading your bank data.",
+            "instruction": "Change the Origin header to 'http://evil-site.com' and send. The server returns 403 — this origin is not in the server's allowlist.",
+            "expected": {
+                "status": 403,
+                "method": "GET"
+            },
+            "hint": "Edit the Origin header value from 'http://localhost:3000' to 'http://evil-site.com'.",
+            "reasoning": {
+                "whyCorrect": "403 Forbidden because the server explicitly denies this origin. This prevents malicious websites from making API requests on behalf of your logged-in users (Cross-Site Request Forgery).",
+                "whyNotAlternative": "Some servers respond with 200 but omit the Access-Control-Allow-Origin header. The browser then blocks the response anyway. Both approaches work, but returning 403 is more explicit and easier to debug in server logs.",
+                "realWorldNote": "CORS doesn't prevent the request from reaching your server — it prevents the RESPONSE from reaching the browser. Your server still processes the request. For actual request blocking, use CSRF tokens and validate the Origin header server-side."
+            }
+        },
+        {
+            "id": "restore-origin",
+            "title": "Restore the allowed origin",
+            "conceptNote": "The CORS flow is invisible to your frontend code — the browser handles it automatically. You only see it fail when the server rejects your origin.",
+            "instruction": "Change Origin back to 'http://localhost:3000' and confirm 200 OK. The browser checks this header automatically — you never see the CORS check in your code.",
+            "expected": {
+                "status": 200,
+                "method": "GET"
+            },
+            "hint": "Set Origin back to 'http://localhost:3000'.",
+            "reasoning": {
+                "whyCorrect": "With the allowed origin restored, the full flow works: browser adds Origin → server validates → server responds with Access-Control-Allow-Origin → browser permits response. All transparent to your frontend code.",
+                "whyNotAlternative": "You might think CORS is just annoying security that slows development. But without it, any website could make requests to your bank's API while you're logged in, read your account balance, and transfer money — all invisible.",
+                "realWorldNote": "In development, you often see 'CORS error' in the console. The fix is NEVER to install a CORS-bypass browser extension. Instead, configure your dev server's proxy or your API's CORS headers. Extensions disable real-world security protection."
+            }
+        },
+        {
+            "id": "add-custom-header",
+            "title": "Trigger a preflight with a custom header",
+            "conceptNote": "Non-standard headers make a request 'non-simple' — the browser sends an automatic OPTIONS preflight to ask 'is this kind of request allowed?'",
+            "instruction": "Add a new header 'X-Custom' with value 'my-value'. Custom headers make the request 'non-simple', which triggers a preflight OPTIONS request. The server blocks this with 403.",
+            "expected": {
+                "status": 403,
+                "method": "GET"
+            },
+            "hint": "Click '+ Add pair' (or use the preset) in Headers. Set key to 'X-Custom' and value to 'my-value'.",
+            "reasoning": {
+                "whyCorrect": "The browser classifies requests as 'simple' or 'non-simple'. Simple requests (GET/POST with standard headers) go directly. Non-simple requests (custom headers, PUT, DELETE, JSON Content-Type) trigger a preflight OPTIONS request first to ask 'is this allowed?'",
+                "whyNotAlternative": "You can't skip the preflight — the browser sends it automatically. You can only configure the server to respond correctly to OPTIONS with Access-Control-Allow-Headers listing which custom headers are permitted.",
+                "realWorldNote": "Preflights add latency (an extra round-trip before every non-simple request). Mitigate this with Access-Control-Max-Age: 86400 in the preflight response — the browser caches the permission for 24 hours instead of asking before every request."
+            }
+        },
+        {
+            "id": "remove-custom",
+            "title": "Remove the custom header to fix it",
+            "conceptNote": "Every custom header you add costs an extra round-trip (preflight). Minimize custom headers in API design to reduce latency for browser clients.",
+            "instruction": "Remove the X-Custom header and send again. Without non-standard headers, no preflight is needed and the request succeeds.",
+            "expected": {
+                "status": 200,
+                "method": "GET"
+            },
+            "hint": "Click ✕ next to the X-Custom header row.",
+            "reasoning": {
+                "whyCorrect": "Without custom headers, the request is 'simple' again — no preflight needed. The takeaway: every custom header you add to API requests adds preflight overhead for browser clients. Design your API to minimize required custom headers.",
+                "whyNotAlternative": "Instead of removing the custom header, you could configure the server to allow it via Access-Control-Allow-Headers: X-Custom. Both solutions work, but the choice depends on whether the custom header is actually necessary for your API's functionality.",
+                "realWorldNote": "Common trap: setting Content-Type: application/json on a POST request makes it non-simple (only text/plain, form-data, and url-encoded are 'simple'). This means virtually every JSON API call triggers a preflight. You MUST handle OPTIONS requests on every endpoint."
+            }
+        }
+    ],
+    "sandboxPrompts": [
+        {
+            "prompt": "Try Origin: http://localhost:3001 (different port)",
+            "hint": "Different ports count as different origins in CORS — does the server allow it?"
+        },
+        {
+            "prompt": "Try adding multiple custom headers at once",
+            "hint": "Does the number of custom headers matter, or is it all-or-nothing?"
+        },
+        {
+            "prompt": "What about Origin: https://localhost:3000 (HTTPS instead of HTTP)?",
+            "hint": "HTTP vs HTTPS is also a different origin per the Same-Origin Policy."
+        }
+    ],
+    "takeaways": [
+        "CORS is a browser security feature — the server controls who gets access by setting Access-Control-Allow-Origin in the response",
+        "Simple requests (GET with standard headers) go through directly; non-simple requests (custom headers, PUT/DELETE) trigger an automatic preflight OPTIONS request",
+        "'Access-Control-Allow-Origin: *' allows any origin but disables credentials — for authenticated APIs, you must whitelist specific origins"
+    ],
+    "interviewNotes": [
+        "CORS only applies to browsers — server-to-server requests (like from your API to another API) are never blocked by CORS",
+        "Preflight responses should be cached with Access-Control-Max-Age to avoid sending OPTIONS before every request — this significantly reduces latency",
+        "Common CORS mistake in production: allowing * in development but forgetting to configure specific origins for production, causing all authenticated requests to fail"
+    ],
+    "interviewExplanation": "CORS is the browser's way of enforcing the Same-Origin Policy for API requests. When my frontend at app.example.com makes a fetch() to api.example.com, the browser adds an Origin header. The server checks this against its allowlist and either includes Access-Control-Allow-Origin in the response (allowing the browser to read it) or omits it (causing the browser to block). For 'non-simple' requests — those using custom headers, PUT, DELETE, or sending JSON — the browser first sends an automatic OPTIONS preflight request to ask the server 'is this allowed?'. I configure CORS server-side with specific allowed origins (never * in production), cache preflight responses with Max-Age, and always test from the actual frontend domain during development.",
+    "allowedMethods": [
+        "GET"
+    ],
+    "defaultRequest": {
+        "method": "GET",
+        "path": "/data",
+        "headers": {
+            "Origin": "http://localhost:3000",
+            "Accept": "application/json"
+        },
+        "query": {},
+        "body": ""
+    },
+    "breakItMistakes": [
+        {
+            "label": "Add custom header",
+            "tooltip": "Adding X-Custom triggers a preflight and CORS block",
+            "apply": {
+                "setHeader": {
+                    "X-Custom": "my-value",
+                    "Origin": "http://localhost:3000"
+                }
+            }
+        },
+        {
+            "label": "Different origin",
+            "tooltip": "Changing origin to a foreign domain triggers CORS block",
+            "apply": {
+                "setHeader": {
+                    "Origin": "http://evil-site.com"
+                }
+            }
+        }
+    ]
+}

@@ -1,0 +1,174 @@
+{
+  "lessonId": "get-query-basics",
+  "title": "GET Requests & Query Parameters",
+  "description": "Learn how to fetch data with GET requests and use query parameters for pagination and filtering.",
+  "category": "Fundamentals",
+  "successCodes": [
+    200
+  ],
+  "objective": "Understand how GET requests work and how query parameters control what data the server returns — the foundation of every API interaction.",
+  "willLearn": [
+    "How to structure a GET request with a path and query string",
+    "How pagination parameters (page, limit) control data slicing",
+    "How search/filter parameters narrow down results"
+  ],
+  "steps": [
+    {
+      "id": "send-default",
+      "title": "Send the default request",
+      "conceptNote": "GET requests are the most basic API call — they ask the server for data without modifying anything. Let's see what happens when you send one.",
+      "instruction": "Click 'Send Request' without changing anything. Observe the 200 response — the server returns 5 users from page 1.",
+      "expected": {
+        "status": 200,
+        "method": "GET"
+      },
+      "reasoning": {
+        "whyCorrect": "200 OK is the standard success response for GET requests that return data. It means the server understood your request and is returning the requested resource.",
+        "whyNotAlternative": "204 No Content would mean 'success but nothing to return' — wrong here because we ARE returning user data. 201 Created is only for POST when a new resource is made.",
+        "realWorldNote": "In production, every GET endpoint should return 200 with data or 404 if the resource doesn't exist. Never return 200 with an error message in the body — that's an anti-pattern called 'soft errors'."
+      }
+    },
+    {
+      "id": "change-page",
+      "title": "Navigate to page 2",
+      "conceptNote": "APIs don't dump all data at once — they slice it into pages. Changing the 'page' parameter fetches a different slice of the dataset.",
+      "instruction": "Change the 'page' query parameter from 1 to 2 and send again. Notice how the returned users change — that's pagination at work.",
+      "expected": {
+        "status": 200,
+        "method": "GET"
+      },
+      "expectedQuery": {
+        "page": "2"
+      },
+      "hint": "Edit the 'page' value in the Query Parameters section from '1' to '2'.",
+      "reasoning": {
+        "whyCorrect": "Pagination via query params keeps the same endpoint (/users) but changes WHICH slice of data you get. The URL tells the server 'give me the second batch of results.'",
+        "whyNotAlternative": "You could put page info in headers or the request body, but query params are the REST convention because they make the request bookmarkable and cacheable — the URL alone fully describes what you're asking for.",
+        "realWorldNote": "Offset pagination (page/limit) is simple but breaks with real-time data. If a new user is inserted while you're on page 1, page 2 might repeat a user. Cursor-based pagination solves this."
+      }
+    },
+    {
+      "id": "change-limit",
+      "title": "Adjust the page size",
+      "conceptNote": "The 'limit' parameter controls how many items come back per page — it's a bandwidth vs. completeness tradeoff that the client controls.",
+      "instruction": "Change 'limit' to 10 to request more users per page. APIs let clients control batch size to balance speed and data volume.",
+      "expected": {
+        "status": 200,
+        "method": "GET"
+      },
+      "expectedQuery": {
+        "limit": "10"
+      },
+      "hint": "Set the 'limit' query parameter to '10'.",
+      "reasoning": {
+        "whyCorrect": "Letting clients set the page size gives them control over bandwidth vs completeness tradeoff. Mobile apps might request limit=10, while dashboards request limit=50.",
+        "whyNotAlternative": "Hardcoding page size server-side seems simpler but prevents this flexibility. However, you MUST cap the max limit server-side (e.g., max 100) to prevent clients from requesting limit=999999 and crashing your database.",
+        "realWorldNote": "Stripe caps limit at 100. GitHub caps at 100. Most production APIs enforce a maximum page size to protect server resources. Always document your limits."
+      }
+    },
+    {
+      "id": "add-search",
+      "title": "Add a search filter",
+      "conceptNote": "Query parameters compose naturally — you can add filters alongside pagination. The same endpoint returns different results based on what you ask for.",
+      "instruction": "Add a new query parameter with key 'search' and value 'alice'. Send the request to see filtered results.",
+      "expected": {
+        "status": 200,
+        "method": "GET"
+      },
+      "expectedQuery": {
+        "search": "alice"
+      },
+      "hint": "Click '+ Add pair' in the Query Parameters section. Set key to 'search' and value to 'alice'.",
+      "reasoning": {
+        "whyCorrect": "Filtering via query params is idiomatic REST — it keeps the resource URL stable (/users) while narrowing results. The server applies the filter and returns only matching records.",
+        "whyNotAlternative": "Creating separate endpoints like /users/search/alice would violate REST principles and make the API harder to use. Query params compose naturally: /users?search=alice&role=admin works; nested URLs don't.",
+        "realWorldNote": "Search and filter params should be case-insensitive in most APIs. Also consider: should search match exact or partial strings? Document this clearly — it's a common source of bugs."
+      }
+    },
+    {
+      "id": "trigger-error",
+      "title": "Trigger a validation error",
+      "conceptNote": "Good APIs don't crash on bad input — they return helpful error messages. Let's intentionally break the request to see how validation works.",
+      "instruction": "Set 'page' to '-1' and send. A well-designed API returns 400 Bad Request with a clear error message instead of crashing.",
+      "expected": {
+        "status": 400,
+        "method": "GET"
+      },
+      "expectedQuery": {
+        "page": "-1"
+      },
+      "hint": "Change the 'page' value to '-1' — negative pages don't make sense!",
+      "reasoning": {
+        "whyCorrect": "400 Bad Request means 'I understood your request format, but the values are invalid.' It tells the client the problem is on THEIR side, not the server's.",
+        "whyNotAlternative": "500 Internal Server Error would be wrong — it implies the server crashed, which erodes client trust. 422 Unprocessable Entity could work for complex validation but 400 is standard for simple parameter validation. 404 is wrong because the endpoint exists — it's the parameters that are bad.",
+        "realWorldNote": "Always include a machine-readable error code and human-readable message in your 400 responses. Example: { error: 'INVALID_PARAMETER', message: 'page must be >= 1', field: 'page' }. This helps frontend developers build precise error handling."
+      }
+    }
+  ],
+  "takeaways": [
+    "Query parameters go after '?' in the URL and are separated by '&' — they control WHAT the server returns without changing the resource",
+    "Pagination (page/limit) is essential for any API returning lists — it prevents the server from dumping thousands of records at once",
+    "Good APIs validate query parameters and return descriptive 400 errors, not 500 crashes"
+  ],
+  "sandboxPrompts": [
+    {
+      "prompt": "What happens if you set limit to 0?",
+      "hint": "Think about edge cases — should zero items be a valid request?"
+    },
+    {
+      "prompt": "Try changing the path from /users to /users/1",
+      "hint": "This API only handles the collection endpoint — individual resources may behave differently."
+    },
+    {
+      "prompt": "Can you combine search with page=2?",
+      "hint": "Filters and pagination compose — but does the second page of filtered results have data?"
+    },
+    {
+      "prompt": "Try adding a 'sort' query parameter",
+      "hint": "The server may or may not support sorting — find out what happens with unknown params!"
+    }
+  ],
+  "interviewNotes": [
+    "GET requests should be idempotent — calling the same endpoint twice gives the same result with no side effects",
+    "Query params vs path params: use path params for resource identity (/users/123) and query params for filtering/sorting (/users?status=active)",
+    "Pagination strategies: offset-based (page/limit) is simple but has issues with large datasets; cursor-based pagination is more robust"
+  ],
+  "interviewExplanation": "When I need to fetch data from an API, I use GET requests with query parameters to control what comes back. For example, GET /users?page=2&limit=10 fetches the second page of users, 10 at a time. Query parameters are key-value pairs appended to the URL after a question mark. They're used for pagination, filtering, sorting, and searching — anything that modifies the response without changing the underlying resource. I always validate these parameters server-side because clients can send anything, and a good API should return a clear 400 error for invalid values rather than silently breaking.",
+  "allowedMethods": [
+    "GET"
+  ],
+  "defaultRequest": {
+    "method": "GET",
+    "path": "/users",
+    "headers": {
+      "Accept": "application/json"
+    },
+    "query": {
+      "page": "1",
+      "limit": "5"
+    },
+    "body": ""
+  },
+  "breakItMistakes": [
+    {
+      "label": "Invalid page number",
+      "tooltip": "Setting page to -1 triggers a 400 error",
+      "apply": {
+        "setQuery": {
+          "page": "-1",
+          "limit": "5"
+        }
+      }
+    },
+    {
+      "label": "Limit too high",
+      "tooltip": "Setting limit to 999 triggers a 400 error",
+      "apply": {
+        "setQuery": {
+          "page": "1",
+          "limit": "999"
+        }
+      }
+    }
+  ]
+}

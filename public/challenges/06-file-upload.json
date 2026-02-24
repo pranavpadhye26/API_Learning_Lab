@@ -1,0 +1,312 @@
+{
+    "id": "file-upload",
+    "title": "Design a File Upload API",
+    "difficulty": "Medium",
+    "timeLimitMinutes": 20,
+    "problemStatement": "Design a RESTful API for a file management service. Users can upload files, list their files, download files, and delete files. The API should handle file metadata, support folder organization, and enforce size limits.",
+    "resourceSchema": [
+        {
+            "field": "fileId",
+            "type": "string (UUID)",
+            "required": true,
+            "constraints": "Auto-generated"
+        },
+        {
+            "field": "name",
+            "type": "string",
+            "required": true,
+            "constraints": "Original filename"
+        },
+        {
+            "field": "mimeType",
+            "type": "string",
+            "required": true,
+            "constraints": "e.g., image/png, application/pdf"
+        },
+        {
+            "field": "sizeBytes",
+            "type": "integer",
+            "required": true,
+            "constraints": "Max 50MB"
+        },
+        {
+            "field": "folderId",
+            "type": "string",
+            "required": false,
+            "constraints": "Null = root folder"
+        },
+        {
+            "field": "uploadedBy",
+            "type": "string",
+            "required": true
+        },
+        {
+            "field": "createdAt",
+            "type": "ISO 8601 datetime",
+            "required": true,
+            "constraints": "Set by server"
+        }
+    ],
+    "functionalRequirements": [
+        "Upload a file with metadata (name, folder, tags)",
+        "List files with folder filter and pagination",
+        "Download a file by ID",
+        "Delete a file",
+        "Get file metadata",
+        "Create folders"
+    ],
+    "constraints": [
+        "Max file size: 10MB",
+        "Only authenticated users can upload/manage files",
+        "Users can only access their own files",
+        "Supported formats: jpg, png, pdf, docx"
+    ],
+    "rubric": [
+        {
+            "category": "Endpoint Coverage",
+            "maxPoints": 25,
+            "criteria": [
+                "POST /files",
+                "GET /files",
+                "GET /files/:id",
+                "GET /files/:id/download",
+                "DELETE /files/:id",
+                "POST /folders"
+            ],
+            "reasoning": "Separating metadata (GET /files/:id) from download (GET /files/:id/download) is critical — metadata is JSON, download is binary. Combining them would require content negotiation, which adds complexity."
+        },
+        {
+            "category": "HTTP Methods",
+            "maxPoints": 10,
+            "criteria": [
+                "POST for upload, GET for download, DELETE for removal"
+            ],
+            "reasoning": "POST for upload because the server assigns the file ID. GET for download is standard — browsers can link to it directly. PUT could work for replacing a file at a known URL, but POST is simpler for initial upload."
+        },
+        {
+            "category": "Status Codes",
+            "maxPoints": 20,
+            "criteria": [
+                "200, 201, 204, 400, 401, 403, 404, 413"
+            ],
+            "reasoning": "413 Payload Too Large is the correct status for files exceeding the size limit. It's more specific than 400 and tells the client exactly what's wrong: the file is too big, not that the request is malformed."
+        },
+        {
+            "category": "Error Handling",
+            "maxPoints": 20,
+            "criteria": [
+                "File too large",
+                "Unsupported format",
+                "File not found",
+                "Not owner"
+            ],
+            "reasoning": "File validation should happen BEFORE storing: check size limits and format first to avoid wasting storage. Return descriptive errors: 'File exceeds 10MB limit (received 15.2MB)' with the max allowed and actual size."
+        },
+        {
+            "category": "Authentication",
+            "maxPoints": 15,
+            "criteria": [
+                "All operations require auth",
+                "Users can only access own files"
+            ],
+            "reasoning": "File ownership is security-critical. Every operation (upload, list, download, delete) must verify the authenticated user owns the file. 403 for accessing someone else's file, 404 for nonexistent files."
+        },
+        {
+            "category": "Query Parameters",
+            "maxPoints": 10,
+            "criteria": [
+                "Folder filter",
+                "File type filter"
+            ],
+            "reasoning": "Folder navigation (?folderId=abc) and type filtering (?type=image) let users find files efficiently. Consider also supporting tags (?tag=project-x) for cross-folder organization."
+        }
+    ],
+    "defendQuestions": [
+        {
+            "id": "multipart-vs-base64",
+            "question": "Your upload endpoint uses multipart/form-data. What would happen if you used JSON with base64-encoded file content instead? Why is multipart preferred?",
+            "modelReasoning": "Base64 encoding increases file size by ~33% (3 bytes become 4 characters). A 10MB file becomes 13.3MB in transit. JSON parsing also loads the entire body into memory. Multipart/form-data streams the file directly — no encoding overhead, no memory spike. Base64 is acceptable for tiny files (<100KB, like avatars) embedded in JSON payloads, but multipart is the standard for general file uploads."
+        },
+        {
+            "id": "direct-vs-presigned",
+            "question": "Should files be uploaded directly to your API server, or should you use presigned URLs to upload directly to cloud storage (S3)? What are the tradeoffs?",
+            "modelReasoning": "Direct upload: simpler, your server can validate immediately, but your server becomes a bottleneck (bandwidth, memory, CPU). Presigned URLs: client uploads directly to S3, bypassing your server entirely. Pros: scalable, fast, no server bottleneck. Cons: harder to validate (need a Lambda trigger or post-processing step), client needs two API calls (get presigned URL, then upload). For production, presigned URLs with post-upload validation is the standard approach."
+        },
+        {
+            "id": "security-scanning",
+            "question": "A user uploads a file named 'invoice.pdf' but it's actually a malicious executable. How would your API handle this?",
+            "modelReasoning": "Never trust the file extension or Content-Type header — both are client-controlled. Validate the actual file content by reading magic bytes (file header signatures). PDF starts with %PDF, JPEG with FFD8FF, PNG with 89504E47. Rename uploaded files to generated UUIDs to prevent path traversal attacks. Scan for malware with ClamAV or similar. Set Content-Disposition: attachment on downloads to prevent browser execution. Store uploads outside the web root."
+        }
+    ],
+    "modelSolution": {
+        "endpoints": [
+            {
+                "method": "POST",
+                "path": "/files",
+                "description": "Upload a file",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "file": "binary",
+                    "name": "string",
+                    "folderId": "string",
+                    "tags": [
+                        "string"
+                    ]
+                },
+                "responseBody": {
+                    "id": "string",
+                    "name": "string",
+                    "size": 0,
+                    "mimeType": "string",
+                    "folderId": "string",
+                    "url": "string",
+                    "createdAt": "ISO8601"
+                },
+                "statusCodes": [
+                    201,
+                    400,
+                    401,
+                    413
+                ],
+                "errorCases": [
+                    "File too large (>10MB)",
+                    "Unsupported file format",
+                    "Missing file",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/files",
+                "description": "List user's files with filters",
+                "headers": [
+                    "Authorization"
+                ],
+                "queryParams": [
+                    "page",
+                    "limit",
+                    "folderId",
+                    "type"
+                ],
+                "responseBody": {
+                    "data": [],
+                    "total": 0,
+                    "page": 1,
+                    "totalPages": 1
+                },
+                "statusCodes": [
+                    200,
+                    401
+                ],
+                "errorCases": [
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/files/:id",
+                "description": "Get file metadata",
+                "headers": [
+                    "Authorization"
+                ],
+                "responseBody": {
+                    "id": "string",
+                    "name": "string",
+                    "size": 0,
+                    "mimeType": "string",
+                    "folderId": "string",
+                    "tags": [],
+                    "createdAt": "ISO8601"
+                },
+                "statusCodes": [
+                    200,
+                    401,
+                    403,
+                    404
+                ],
+                "errorCases": [
+                    "File not found",
+                    "Not the file owner",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/files/:id/download",
+                "description": "Download a file",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    200,
+                    401,
+                    403,
+                    404
+                ],
+                "errorCases": [
+                    "File not found",
+                    "Not the file owner",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "DELETE",
+                "path": "/files/:id",
+                "description": "Delete a file",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    204,
+                    401,
+                    403,
+                    404
+                ],
+                "errorCases": [
+                    "File not found",
+                    "Not the file owner",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "POST",
+                "path": "/folders",
+                "description": "Create a folder",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "name": "string",
+                    "parentId": "string"
+                },
+                "responseBody": {
+                    "id": "string",
+                    "name": "string",
+                    "parentId": "string",
+                    "createdAt": "ISO8601"
+                },
+                "statusCodes": [
+                    201,
+                    400,
+                    401
+                ],
+                "errorCases": [
+                    "Missing folder name",
+                    "Parent folder not found",
+                    "Missing or invalid token"
+                ]
+            }
+        ],
+        "designNotes": [
+            "Use multipart/form-data Content-Type for file uploads, not application/json",
+            "Separate download endpoint (/files/:id/download) from metadata endpoint (/files/:id)",
+            "Return 413 Payload Too Large for files exceeding the size limit",
+            "Include mimeType in metadata so clients know what they're downloading",
+            "File ownership check returns 403, not 404, to distinguish from nonexistent files"
+        ]
+    }
+}

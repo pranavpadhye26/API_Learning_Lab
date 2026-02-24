@@ -1,0 +1,322 @@
+{
+    "id": "event-booking",
+    "title": "Design an Event Booking API",
+    "difficulty": "Medium",
+    "timeLimitMinutes": 25,
+    "problemStatement": "Design a RESTful API for an event booking platform. Users can browse events, book tickets for specific events, view their bookings, and cancel bookings. Events have limited capacity, and the system must handle concurrent booking attempts.",
+    "resourceSchema": [
+        {
+            "field": "eventId",
+            "type": "string (UUID)",
+            "required": true,
+            "constraints": "Auto-generated"
+        },
+        {
+            "field": "title",
+            "type": "string",
+            "required": true
+        },
+        {
+            "field": "date",
+            "type": "ISO 8601 datetime",
+            "required": true
+        },
+        {
+            "field": "location",
+            "type": "string",
+            "required": true
+        },
+        {
+            "field": "capacity",
+            "type": "integer",
+            "required": true,
+            "constraints": "Max tickets available"
+        },
+        {
+            "field": "availableTickets",
+            "type": "integer",
+            "required": true,
+            "constraints": "Decreases on booking"
+        },
+        {
+            "field": "bookingId",
+            "type": "string (UUID)",
+            "required": true,
+            "constraints": "Auto-generated on booking"
+        },
+        {
+            "field": "booking.userId",
+            "type": "string",
+            "required": true
+        },
+        {
+            "field": "booking.ticketCount",
+            "type": "integer",
+            "required": true,
+            "constraints": "Min 1"
+        },
+        {
+            "field": "booking.status",
+            "type": "\"confirmed\" | \"cancelled\"",
+            "required": true
+        }
+    ],
+    "functionalRequirements": [
+        "List events with date range filter and pagination",
+        "Get event details including available capacity",
+        "Book tickets for an event",
+        "List user's bookings",
+        "Cancel a booking (with refund eligibility check)",
+        "Get booking details"
+    ],
+    "constraints": [
+        "Cannot book more tickets than available capacity",
+        "Cancellation is only allowed 24h before the event",
+        "Each booking gets a unique confirmation number",
+        "Users must be authenticated to book"
+    ],
+    "rubric": [
+        {
+            "category": "Endpoint Coverage",
+            "maxPoints": 25,
+            "criteria": [
+                "GET /events",
+                "GET /events/:id",
+                "POST /bookings",
+                "GET /bookings",
+                "GET /bookings/:id",
+                "DELETE /bookings/:id"
+            ],
+            "reasoning": "Events and bookings are separate resources. POST /bookings (not POST /events/:id/book) keeps booking logic independent from event CRUD, making it easier to add features like multi-event bookings later."
+        },
+        {
+            "category": "HTTP Methods",
+            "maxPoints": 10,
+            "criteria": [
+                "POST for booking, DELETE for cancellation"
+            ],
+            "reasoning": "POST creates a booking (new resource). DELETE for cancellation is debatable — some prefer PATCH /bookings/:id with status='cancelled' to preserve the booking record. DELETE implies permanent removal; PATCH implies state change."
+        },
+        {
+            "category": "Status Codes",
+            "maxPoints": 20,
+            "criteria": [
+                "200, 201, 204, 400, 401, 404, 409, 422"
+            ],
+            "reasoning": "409 for capacity conflicts (sold out during booking), 422 for business rule violations (cancellation deadline passed). The distinction: 409 = external conflict (someone else took the spots), 422 = your request violates a rule."
+        },
+        {
+            "category": "Error Handling",
+            "maxPoints": 15,
+            "criteria": [
+                "Event full",
+                "Past cancellation deadline",
+                "Event not found",
+                "Booking not found"
+            ],
+            "reasoning": "Capacity errors should include remaining availability ('Only 3 tickets remaining'). Cancellation deadline errors should include the deadline time so the user knows when it was."
+        },
+        {
+            "category": "Authentication",
+            "maxPoints": 10,
+            "criteria": [
+                "Auth for booking operations"
+            ],
+            "reasoning": "Browsing events should be public. Booking, viewing, and cancelling bookings require auth — these are user-specific actions tied to payment and identity."
+        },
+        {
+            "category": "Pagination",
+            "maxPoints": 10,
+            "criteria": [
+                "Event and booking listing pagination"
+            ],
+            "reasoning": "Both event lists and booking lists need pagination. Events might also need sorting by date (default: upcoming first). Past events should still be queryable but not shown by default."
+        },
+        {
+            "category": "Query Parameters",
+            "maxPoints": 10,
+            "criteria": [
+                "Date range, category filters"
+            ],
+            "reasoning": "Date range filters (?from=2024-01-01&to=2024-01-31) are essential for event browsing. Category filters narrow results. Combining filters: ?from=2024-03-01&category=music gives upcoming music events."
+        }
+    ],
+    "defendQuestions": [
+        {
+            "id": "booking-vs-reservation",
+            "question": "Should booking be atomic (instant confirmation) or a two-step process (reserve → confirm)? What are the tradeoffs?",
+            "modelReasoning": "Atomic booking: simpler, instant feedback, but risky for expensive events (no review step). Two-step: POST /reservations to hold tickets temporarily (10 min), then POST /reservations/:id/confirm to finalize. This prevents accidental bookings and allows payment processing. Airlines and concert venues use two-step. Simple event apps use atomic. The tradeoff is complexity vs user confidence."
+        },
+        {
+            "id": "cancellation-refund",
+            "question": "Your API uses DELETE for cancellation. Should it really delete the booking, or change its status? How do refunds factor in?",
+            "modelReasoning": "DELETE implies permanent removal, but you need booking history for refunds, analytics, and customer service. Better approach: PATCH /bookings/:id with body { status: 'cancelled' }. This preserves the record. Refund logic belongs in a separate service — the booking API marks it cancelled, a refund service processes the payment reversal asynchronously. DELETE is acceptable only if you don't need booking history."
+        },
+        {
+            "id": "overbooking",
+            "question": "How do you handle the scenario where 100 users try to book the last 5 tickets simultaneously?",
+            "modelReasoning": "Database-level solution: use SELECT ... FOR UPDATE in a transaction. Check available_tickets ≥ requested_tickets, then decrement atomically. Only one transaction can hold the lock at a time. Application-level: use a queue to serialize booking requests for popular events. Return 409 Conflict for failed attempts with a message like 'Only 2 tickets remaining.' Never rely on application-level checks alone (checking inventory before decrementing) — race conditions will cause overselling."
+        }
+    ],
+    "modelSolution": {
+        "endpoints": [
+            {
+                "method": "GET",
+                "path": "/events",
+                "description": "List events with filters and pagination",
+                "queryParams": [
+                    "page",
+                    "limit",
+                    "from",
+                    "to",
+                    "category"
+                ],
+                "responseBody": {
+                    "data": [],
+                    "total": 0,
+                    "page": 1,
+                    "totalPages": 1
+                },
+                "statusCodes": [
+                    200,
+                    400
+                ],
+                "errorCases": [
+                    "Invalid date range",
+                    "Invalid pagination"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/events/:id",
+                "description": "Get event details with availability",
+                "responseBody": {
+                    "id": "string",
+                    "title": "string",
+                    "date": "ISO8601",
+                    "venue": "string",
+                    "totalCapacity": 100,
+                    "availableTickets": 42,
+                    "price": 50
+                },
+                "statusCodes": [
+                    200,
+                    404
+                ],
+                "errorCases": [
+                    "Event not found"
+                ]
+            },
+            {
+                "method": "POST",
+                "path": "/bookings",
+                "description": "Book tickets for an event",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "eventId": "string",
+                    "tickets": 2
+                },
+                "responseBody": {
+                    "bookingId": "string",
+                    "confirmationNumber": "string",
+                    "eventId": "string",
+                    "tickets": 2,
+                    "totalPrice": 100,
+                    "status": "confirmed"
+                },
+                "statusCodes": [
+                    201,
+                    400,
+                    401,
+                    404,
+                    409
+                ],
+                "errorCases": [
+                    "Event not found",
+                    "Not enough tickets available",
+                    "Invalid ticket count",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/bookings",
+                "description": "List current user's bookings",
+                "headers": [
+                    "Authorization"
+                ],
+                "queryParams": [
+                    "page",
+                    "limit"
+                ],
+                "responseBody": {
+                    "data": [],
+                    "total": 0,
+                    "page": 1
+                },
+                "statusCodes": [
+                    200,
+                    401
+                ],
+                "errorCases": [
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/bookings/:id",
+                "description": "Get booking details",
+                "headers": [
+                    "Authorization"
+                ],
+                "responseBody": {
+                    "bookingId": "string",
+                    "confirmationNumber": "string",
+                    "event": {},
+                    "tickets": 2,
+                    "totalPrice": 100,
+                    "status": "confirmed",
+                    "createdAt": "ISO8601"
+                },
+                "statusCodes": [
+                    200,
+                    401,
+                    404
+                ],
+                "errorCases": [
+                    "Booking not found",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "DELETE",
+                "path": "/bookings/:id",
+                "description": "Cancel a booking",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    204,
+                    401,
+                    404,
+                    422
+                ],
+                "errorCases": [
+                    "Booking not found",
+                    "Cancellation deadline passed",
+                    "Missing or invalid token"
+                ]
+            }
+        ],
+        "designNotes": [
+            "Bookings are a separate resource from events — don't nest too deeply",
+            "Use 409 for capacity conflicts and 422 for business rule violations (deadline passed)",
+            "Return availableTickets on event detail so the UI can show availability",
+            "Cancellation should restore ticket count atomically",
+            "Confirmation number should be user-friendly (e.g., EVT-2024-001) vs internal UUID"
+        ]
+    }
+}

@@ -1,0 +1,233 @@
+{
+    "lessonId": "post-json-validation",
+    "title": "POST Requests & JSON Validation",
+    "description": "Send data to a server with POST and learn how body validation works, including Content-Type handling.",
+    "category": "Creating Data",
+    "successCodes": [
+        201
+    ],
+    "objective": "Learn how to send data to a server using POST requests, understand why Content-Type headers matter, and see how server-side validation protects data integrity.",
+    "willLearn": [
+        "How POST requests differ from GET — they send data in the request body",
+        "Why the Content-Type header is required and what happens without it",
+        "How server-side validation catches missing fields, bad formats, and invalid data"
+    ],
+    "steps": [
+        {
+            "id": "send-valid",
+            "title": "Create a user successfully",
+            "conceptNote": "POST requests create new resources on the server. Unlike GET, you send data IN the request body — the server reads it and creates something new.",
+            "instruction": "Click 'Send Request' with the default body. You should get a 201 Created response — the server accepted your data and created a new resource.",
+            "expected": {
+                "status": 201,
+                "method": "POST"
+            },
+            "reasoning": {
+                "whyCorrect": "201 Created is the correct response for successful POST requests that create a resource. Unlike 200, it specifically signals 'a new resource now exists that didn't before.'",
+                "whyNotAlternative": "200 OK would technically work but loses semantic meaning — clients can't distinguish 'created' from 'already existed'. 204 No Content would hide the created resource from the client. Best practice: return 201 with the created object (including its server-assigned ID) in the response body.",
+                "realWorldNote": "Production APIs should also return a Location header with the URL of the new resource (e.g., Location: /users/42). This lets clients immediately follow up with a GET if needed."
+            }
+        },
+        {
+            "id": "remove-content-type",
+            "title": "Remove the Content-Type header",
+            "conceptNote": "The Content-Type header tells the server what format your data is in. Without it, the server has no idea if you're sending JSON, XML, or random bytes.",
+            "instruction": "Delete the 'Content-Type' header and send. The server returns 415 Unsupported Media Type — it doesn't know how to parse your body without this header.",
+            "expected": {
+                "status": 415,
+                "method": "POST"
+            },
+            "hint": "Click the ✕ button next to the Content-Type header row to remove it.",
+            "reasoning": {
+                "whyCorrect": "415 Unsupported Media Type means 'I don't know how to read what you sent.' Without Content-Type, the server can't determine if the bytes are JSON, XML, form data, or binary — so it refuses to guess.",
+                "whyNotAlternative": "400 Bad Request is tempting but incorrect — the request body isn't malformed, the server simply doesn't know what format it's in. 400 should be reserved for cases where the server CAN parse the body but finds errors.",
+                "realWorldNote": "Some APIs default to application/json if Content-Type is missing. This is a design choice that prioritizes convenience over strictness. Strict APIs reject missing Content-Type — it forces clients to be explicit."
+            }
+        },
+        {
+            "id": "send-bad-json",
+            "title": "Send malformed JSON",
+            "conceptNote": "JSON has strict syntax rules — keys must be quoted, strings must use double quotes. Malformed JSON can't be parsed at all, regardless of what data it contains.",
+            "instruction": "Restore Content-Type, then change the body to '{ name: Jane }' (invalid JSON — keys must be quoted). The server returns 400 Bad Request.",
+            "expected": {
+                "status": 400,
+                "method": "POST"
+            },
+            "hint": "JSON requires double quotes around keys: {\"name\": \"Jane\"} is valid, { name: Jane } is not.",
+            "reasoning": {
+                "whyCorrect": "400 Bad Request is correct because the server CAN read the Content-Type (it's JSON), but the body bytes are not valid JSON. The request is literally malformed — it can't be parsed at all.",
+                "whyNotAlternative": "422 Unprocessable Entity is wrong here because 422 means 'I parsed your JSON successfully, but the data inside fails validation.' With malformed JSON, parsing never even succeeds. The distinction matters: 400 = syntax error, 422 = semantic error.",
+                "realWorldNote": "Always return the parse error location in your 400 response: 'Unexpected token n at position 2'. This saves developers hours of debugging. Libraries like Express do this automatically with express.json() middleware."
+            }
+        },
+        {
+            "id": "missing-field",
+            "title": "Omit a required field",
+            "conceptNote": "Valid JSON syntax doesn't guarantee valid data. Server-side validation checks business rules — like required fields, format constraints, and data types.",
+            "instruction": "Fix the JSON syntax but remove the 'email' field. Send only {\"name\": \"Jane Doe\"}. The server returns 422 — valid JSON, but failing business rules.",
+            "expected": {
+                "status": 422,
+                "method": "POST"
+            },
+            "hint": "Edit the body to contain only the name field: {\"name\": \"Jane Doe\"}",
+            "reasoning": {
+                "whyCorrect": "422 Unprocessable Entity is exactly right. The JSON is syntactically valid (parses fine), but it fails business validation — the 'email' field is required. 422 signals 'I understood what you said, but I can't process it because it violates the rules.'",
+                "whyNotAlternative": "400 Bad Request is a common but less precise choice. Many APIs use 400 for everything, but RFC 4918 introduced 422 specifically for 'well-formed but semantically invalid' cases. Using 422 gives clients more precise error handling. Some teams standardize on 400 for simplicity — both are defensible positions.",
+                "realWorldNote": "In interviews, stating '400 for syntax errors, 422 for validation errors' shows you understand HTTP semantics deeply. Some APIs (like Stripe) use 400 for both; others (like GitHub) use 422. Know your team's convention."
+            }
+        },
+        {
+            "id": "fix-and-succeed",
+            "title": "Fix everything and succeed",
+            "conceptNote": "Server validation works in layers: format check → syntax check → business rules → success. Each layer must pass for the request to go through.",
+            "instruction": "Restore both the Content-Type header and the full body with name + email. Confirm you get 201 Created again.",
+            "expected": {
+                "status": 201,
+                "method": "POST"
+            },
+            "hint": "Make sure you have Content-Type: application/json header and body: {\"name\": \"Jane Doe\", \"email\": \"jane@example.com\"}",
+            "reasoning": {
+                "whyCorrect": "This confirms the entire validation chain works: correct Content-Type → parseable JSON → all required fields present → 201 Created. Each layer must pass for the request to succeed.",
+                "whyNotAlternative": "If this still failed, you'd debug layer by layer: 415 → check Content-Type. 400 → check JSON syntax. 422 → check required fields. This 'waterfall of validation' pattern is how production servers are structured.",
+                "realWorldNote": "POST is not idempotent — sending the same request twice creates TWO resources. This is why payment APIs use idempotency keys: the client sends a unique key with each request, and the server deduplicates. Always consider: what happens if this request is sent twice?"
+            }
+        }
+    ],
+    "tradeoffCards": [
+        {
+            "id": "post-put-patch",
+            "title": "POST vs PUT vs PATCH: When to use each?",
+            "optionA": {
+                "label": "PUT (Full Replace)",
+                "pros": [
+                    "Idempotent — sending twice has the same effect",
+                    "Simple mental model: 'replace the whole thing'",
+                    "Client controls the resource URL"
+                ],
+                "cons": [
+                    "Must send ALL fields, even unchanged ones",
+                    "Omitting a field means deleting it (null)",
+                    "Larger payloads for partial updates"
+                ]
+            },
+            "optionB": {
+                "label": "PATCH (Partial Update)",
+                "pros": [
+                    "Send only changed fields — smaller payloads",
+                    "Safer for concurrent edits (less chance of overwriting)",
+                    "More bandwidth-efficient for large resources"
+                ],
+                "cons": [
+                    "Not idempotent by default (can be made idempotent)",
+                    "Merge semantics can be ambiguous (what does null mean?)",
+                    "More complex server-side logic to handle partial data"
+                ]
+            },
+            "whenToChoose": {
+                "a": "Use PUT when the client has the complete resource and wants to replace it entirely. Common for settings/profiles where the client always has the full object.",
+                "b": "Use PATCH when the client only wants to change 1-2 fields on a large resource. Common for updating status fields, toggling flags, or collaborative editing."
+            },
+            "failureScenario": "If you use PUT for partial updates but the client forgets to include a field, that field gets set to null — silently deleting data. If you use PATCH without clear merge semantics, two concurrent patches might conflict. Both need careful API documentation."
+        },
+        {
+            "id": "idempotency",
+            "title": "Idempotency: Why does it matter?",
+            "optionA": {
+                "label": "Idempotent Operations (GET, PUT, DELETE)",
+                "pros": [
+                    "Safe to retry on failure",
+                    "No duplicate side effects",
+                    "Clients can recover from network timeouts easily"
+                ],
+                "cons": [
+                    "PUT requires sending the full resource",
+                    "DELETE is idempotent but might return 404 on second call",
+                    "Requires more thought in API design"
+                ]
+            },
+            "optionB": {
+                "label": "Non-Idempotent Operations (POST)",
+                "pros": [
+                    "Simple to implement",
+                    "Server controls ID generation",
+                    "Natural for creating new resources"
+                ],
+                "cons": [
+                    "Retrying creates duplicates",
+                    "Network failures are dangerous — did it succeed?",
+                    "Requires idempotency keys for safety"
+                ]
+            },
+            "whenToChoose": {
+                "a": "Prefer idempotent operations when data integrity is critical. PUT /orders/123 is safer than POST /orders because retrying won't create duplicates.",
+                "b": "Use POST when the server must assign IDs, when creating truly unique things, or when paired with idempotency keys (like Stripe's Idempotency-Key header)."
+            },
+            "failureScenario": "A mobile app sends POST /orders to buy a product. The network drops after the server processes it but before the client gets the response. The client retries → the user is charged twice. Idempotency keys prevent this: the server recognizes the retry and returns the original response."
+        }
+    ],
+    "sandboxPrompts": [
+        {
+            "prompt": "What happens if you send an empty body {}?",
+            "hint": "The JSON is valid but has no fields — how does validation handle that?"
+        },
+        {
+            "prompt": "Try adding an extra field like 'age': 25",
+            "hint": "Should the server reject unknown fields or silently ignore them?"
+        },
+        {
+            "prompt": "What if the email format is invalid? Try 'not-an-email'",
+            "hint": "Is the server checking email format or just field presence?"
+        },
+        {
+            "prompt": "Try sending the same valid request twice",
+            "hint": "POST is not idempotent — what happens with duplicate data?"
+        }
+    ],
+    "takeaways": [
+        "POST requests create new resources — the data goes in the request body, not the URL",
+        "Content-Type: application/json tells the server how to parse the body. Without it, the server has no idea what you sent",
+        "Validation happens in layers: 415 (wrong format) → 400 (unparseable) → 422 (valid JSON, invalid data) → 201 (success)"
+    ],
+    "interviewNotes": [
+        "POST vs PUT: POST creates a new resource (server assigns the ID), PUT replaces an existing resource at a specific URL",
+        "Status code distinctions matter: 400 = malformed request, 422 = well-formed but semantically invalid, 415 = wrong Content-Type",
+        "Always validate on the server even if the client validates too — client validation is for UX, server validation is for security"
+    ],
+    "interviewExplanation": "When creating resources via an API, I use POST with a JSON body. The Content-Type header is crucial — it tells the server how to interpret the body bytes. Without it, you get a 415 error. The server then validates in stages: first it tries to parse the JSON (400 if malformed), then it checks business rules like required fields (422 if invalid), and finally creates the resource (201 with the new resource in the response). This layered validation pattern is something I implement in every API I build, because each status code gives the client specific, actionable feedback about what went wrong.",
+    "allowedMethods": [
+        "POST"
+    ],
+    "defaultRequest": {
+        "method": "POST",
+        "path": "/users",
+        "headers": {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        },
+        "query": {},
+        "body": "{\n  \"name\": \"Jane Doe\",\n  \"email\": \"jane@example.com\"\n}"
+    },
+    "breakItMistakes": [
+        {
+            "label": "Missing Content-Type",
+            "tooltip": "Removing Content-Type header causes a 415 error",
+            "apply": {
+                "removeHeader": "Content-Type"
+            }
+        },
+        {
+            "label": "Invalid JSON body",
+            "tooltip": "Sending malformed JSON causes a 400 error",
+            "apply": {
+                "setBody": "{ name: Jane }"
+            }
+        },
+        {
+            "label": "Missing required field",
+            "tooltip": "Omitting 'email' triggers a 422 validation error",
+            "apply": {
+                "setBody": "{\n  \"name\": \"Jane Doe\"\n}"
+            }
+        }
+    ]
+}

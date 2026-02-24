@@ -1,0 +1,344 @@
+{
+    "id": "ecommerce-cart",
+    "title": "Design an E-Commerce Cart API",
+    "difficulty": "Medium",
+    "timeLimitMinutes": 25,
+    "problemStatement": "Design a RESTful API for an e-commerce shopping cart. Users can browse products, add items to cart, update quantities, remove items, and checkout. The cart should handle inventory checks and calculate totals.",
+    "resourceSchema": [
+        {
+            "field": "cartId",
+            "type": "string (UUID)",
+            "required": true,
+            "constraints": "Auto-generated"
+        },
+        {
+            "field": "userId",
+            "type": "string",
+            "required": true
+        },
+        {
+            "field": "items",
+            "type": "CartItem[]",
+            "required": true,
+            "constraints": "Array of cart items"
+        },
+        {
+            "field": "item.productId",
+            "type": "string",
+            "required": true
+        },
+        {
+            "field": "item.quantity",
+            "type": "integer",
+            "required": true,
+            "constraints": "Min 1, limited by inventory"
+        },
+        {
+            "field": "item.price",
+            "type": "number",
+            "required": true,
+            "constraints": "Price at time of adding"
+        },
+        {
+            "field": "total",
+            "type": "number",
+            "required": true,
+            "constraints": "Calculated server-side"
+        }
+    ],
+    "functionalRequirements": [
+        "List products with search, category filter, and pagination",
+        "Get product details",
+        "Add item to cart with quantity",
+        "Update cart item quantity",
+        "Remove item from cart",
+        "Get cart with calculated totals",
+        "Checkout the cart"
+    ],
+    "constraints": [
+        "Cannot add more items than available inventory",
+        "Cart is tied to the authenticated user",
+        "Checkout should validate inventory before processing",
+        "Price is calculated server-side (never trust client prices)"
+    ],
+    "rubric": [
+        {
+            "category": "Endpoint Coverage",
+            "maxPoints": 25,
+            "criteria": [
+                "GET /products",
+                "GET /products/:id",
+                "GET /cart",
+                "POST /cart/items",
+                "PUT /cart/items/:id",
+                "DELETE /cart/items/:id",
+                "POST /cart/checkout"
+            ],
+            "reasoning": "Seven endpoints span two domains: products (public catalog) and cart (user-specific state). Separating /products from /cart makes it clear which require auth and which are public."
+        },
+        {
+            "category": "HTTP Methods",
+            "maxPoints": 10,
+            "criteria": [
+                "POST for adding, PUT for updating, DELETE for removing"
+            ],
+            "reasoning": "POST /cart/items creates a new cart entry. PUT updates quantity (idempotent — setting quantity=3 twice gives the same result). DELETE removes. POST /checkout creates a new order resource."
+        },
+        {
+            "category": "Status Codes",
+            "maxPoints": 15,
+            "criteria": [
+                "200, 201, 204, 400, 401, 404, 409, 422"
+            ],
+            "reasoning": "409 Conflict is key for inventory issues — another user bought the last item while you had it in your cart. This is fundamentally different from 400 (your request is malformed) or 422 (your data fails validation)."
+        },
+        {
+            "category": "Error Handling",
+            "maxPoints": 15,
+            "criteria": [
+                "Out of stock",
+                "Invalid quantity",
+                "Empty cart checkout",
+                "Product not found"
+            ],
+            "reasoning": "E-commerce has more error states than simple CRUD. 'Out of stock' can happen between adding to cart and checkout — the API must re-validate at checkout time. 'Empty cart checkout' prevents wasted payment processing."
+        },
+        {
+            "category": "Authentication",
+            "maxPoints": 10,
+            "criteria": [
+                "Cart operations require auth"
+            ],
+            "reasoning": "Products are public (no auth to browse). Cart is user-specific — without auth, whose cart are we modifying? Guest carts can use session tokens but add complexity."
+        },
+        {
+            "category": "Pagination",
+            "maxPoints": 10,
+            "criteria": [
+                "Product listing pagination"
+            ],
+            "reasoning": "Product catalogs can have thousands of items. Pagination is essential. Consider cursor-based for infinite scroll UIs, offset for traditional page navigation."
+        },
+        {
+            "category": "Query Parameters",
+            "maxPoints": 5,
+            "criteria": [
+                "Search, category filter, sort"
+            ],
+            "reasoning": "Product search (?search=laptop), category filter (?category=electronics), and sorting (?sort=price,-rating) are essential for usable product browsing."
+        },
+        {
+            "category": "Request/Response Design",
+            "maxPoints": 10,
+            "criteria": [
+                "Cart totals, line items with prices"
+            ],
+            "reasoning": "Cart responses must include server-calculated totals. Never trust client-side price calculations — a malicious client could send total=0. Include per-item prices so clients can show line items."
+        }
+    ],
+    "defendQuestions": [
+        {
+            "id": "inventory-race-condition",
+            "question": "Two users add the last item to their carts simultaneously. How does your API prevent overselling?",
+            "modelReasoning": "This is a classic race condition. Solutions: (1) Optimistic: don't reserve inventory on add-to-cart, check at checkout with a database transaction (SELECT FOR UPDATE). If inventory is 0, return 409. (2) Pessimistic: reserve inventory on add-to-cart with a timeout (e.g., 15 min hold), release if not checked out. Most e-commerce sites use optimistic — it's simpler and avoids holding inventory for abandoned carts."
+        },
+        {
+            "id": "price-calculation",
+            "question": "Why do you calculate prices server-side instead of accepting the price from the client? What if the price changes after adding to cart?",
+            "modelReasoning": "Never trust client prices — a malicious client could send price=0.01 for a $500 item. Always calculate server-side using the product's current price. If the price changes between add-to-cart and checkout, you have two options: (1) always use the latest price (Amazon's approach), or (2) honor the cart price for a limited time. Either way, show the final total at checkout for transparency."
+        },
+        {
+            "id": "cart-persistence",
+            "question": "Should the cart persist after logout? What about guest users who haven't created an account?",
+            "modelReasoning": "Persisted carts reduce abandoned cart rates — users expect their cart to survive across sessions. For guests, use a session cookie or localStorage with a temporary cart ID. On registration, merge the guest cart with the new user's cart. Conflict resolution: if a guest adds Item A and then logs into an account that already has Item A in the cart, increase quantity or keep the max. This is a UX decision, not just an API decision."
+        }
+    ],
+    "modelSolution": {
+        "endpoints": [
+            {
+                "method": "GET",
+                "path": "/products",
+                "description": "List products with search, filter, and pagination",
+                "queryParams": [
+                    "page",
+                    "limit",
+                    "search",
+                    "category",
+                    "sort"
+                ],
+                "responseBody": {
+                    "data": [],
+                    "total": 0,
+                    "page": 1,
+                    "totalPages": 1
+                },
+                "statusCodes": [
+                    200,
+                    400
+                ],
+                "errorCases": [
+                    "Invalid pagination params",
+                    "Invalid category filter"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/products/:id",
+                "description": "Get product details including inventory count",
+                "responseBody": {
+                    "id": "string",
+                    "name": "string",
+                    "price": 0,
+                    "inventory": 0,
+                    "category": "string",
+                    "description": "string"
+                },
+                "statusCodes": [
+                    200,
+                    404
+                ],
+                "errorCases": [
+                    "Product not found"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/cart",
+                "description": "Get current user's cart with calculated totals",
+                "headers": [
+                    "Authorization"
+                ],
+                "responseBody": {
+                    "items": [],
+                    "subtotal": 0,
+                    "tax": 0,
+                    "total": 0,
+                    "itemCount": 0
+                },
+                "statusCodes": [
+                    200,
+                    401
+                ],
+                "errorCases": [
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "POST",
+                "path": "/cart/items",
+                "description": "Add an item to the cart",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "productId": "string",
+                    "quantity": 1
+                },
+                "responseBody": {
+                    "items": [],
+                    "subtotal": 0,
+                    "total": 0
+                },
+                "statusCodes": [
+                    201,
+                    400,
+                    401,
+                    404,
+                    409
+                ],
+                "errorCases": [
+                    "Product not found",
+                    "Insufficient inventory",
+                    "Invalid quantity",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "PUT",
+                "path": "/cart/items/:id",
+                "description": "Update item quantity in cart",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "quantity": 1
+                },
+                "responseBody": {
+                    "items": [],
+                    "subtotal": 0,
+                    "total": 0
+                },
+                "statusCodes": [
+                    200,
+                    400,
+                    401,
+                    404,
+                    409
+                ],
+                "errorCases": [
+                    "Item not in cart",
+                    "Insufficient inventory",
+                    "Invalid quantity",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "DELETE",
+                "path": "/cart/items/:id",
+                "description": "Remove an item from the cart",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    204,
+                    401,
+                    404
+                ],
+                "errorCases": [
+                    "Item not in cart",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "POST",
+                "path": "/cart/checkout",
+                "description": "Process checkout — validate inventory and create order",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "shippingAddress": "string",
+                    "paymentMethod": "string"
+                },
+                "responseBody": {
+                    "orderId": "string",
+                    "total": 0,
+                    "status": "confirmed",
+                    "estimatedDelivery": "ISO8601"
+                },
+                "statusCodes": [
+                    201,
+                    400,
+                    401,
+                    409
+                ],
+                "errorCases": [
+                    "Cart is empty",
+                    "Inventory changed since adding",
+                    "Missing shipping address",
+                    "Missing or invalid token"
+                ]
+            }
+        ],
+        "designNotes": [
+            "Prices should always be calculated server-side — never accept price from the client",
+            "Use 409 Conflict for inventory issues (another user bought the last item)",
+            "Cart totals should include subtotal, tax, and total for transparency",
+            "Checkout should re-validate inventory atomically to prevent race conditions",
+            "POST /cart/checkout (not PUT) because it creates a new order resource"
+        ]
+    }
+}

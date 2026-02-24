@@ -1,0 +1,251 @@
+{
+    "lessonId": "pagination-filtering",
+    "title": "Pagination & Filtering",
+    "description": "Learn how to paginate large datasets and apply filters like status to narrow results.",
+    "category": "Data Patterns",
+    "successCodes": [
+        200
+    ],
+    "objective": "Master the two most common data retrieval patterns — pagination to handle large lists and filtering to narrow results by criteria like status.",
+    "willLearn": [
+        "How pagination prevents performance problems by splitting large datasets into pages",
+        "How filter parameters like 'status' let clients request exactly the data they need",
+        "How to combine pagination and filtering in a single query string"
+    ],
+    "steps": [
+        {
+            "id": "fetch-paid",
+            "title": "Fetch paid orders",
+            "conceptNote": "Real production APIs return metadata alongside data — things like total count and page info so clients can build navigation UIs.",
+            "instruction": "Send the default request to get page 1 of paid orders. Notice the response includes pagination metadata (total, totalPages, currentPage).",
+            "expected": {
+                "status": 200,
+                "method": "GET"
+            },
+            "reasoning": {
+                "whyCorrect": "The response includes both the data AND metadata about the full dataset (total count, total pages). This metadata pattern lets clients build page navigation UIs without making separate count queries.",
+                "whyNotAlternative": "Some APIs return only the data array without metadata. This forces clients to keep fetching until they get an empty page — wasteful and poor UX. Always include total count so clients can show 'Page 1 of 5'.",
+                "realWorldNote": "For very large datasets (millions of rows), counting total records is expensive (COUNT(*) scans the whole table). Consider returning an approximate count or omitting totalPages for cursor-based pagination where you only indicate 'has more?'."
+            }
+        },
+        {
+            "id": "change-status",
+            "title": "Filter by a different status",
+            "conceptNote": "Filters are composable query parameters — changing a filter value gives you a completely different slice of data from the same endpoint.",
+            "instruction": "Change the 'status' query parameter from 'paid' to 'pending' and send. The results change — only pending orders are returned.",
+            "expected": {
+                "status": 200,
+                "method": "GET"
+            },
+            "hint": "Edit the 'status' value in Query Parameters from 'paid' to 'pending'.",
+            "reasoning": {
+                "whyCorrect": "Filtering via query params is composable — you can combine filters naturally: ?status=pending&limit=10. The server translates this to a WHERE clause in SQL. The response auto-resets to page 1 of the filtered dataset.",
+                "whyNotAlternative": "Creating separate endpoints (/orders/paid, /orders/pending) is tempting but doesn't scale. When you add a 'shipped' status, you'd need another endpoint. Query params let you add new filter values without new routes.",
+                "realWorldNote": "Validate filter values server-side with an explicit allowlist. Never pass filter values directly into SQL queries — that's SQL injection. Use parameterized queries: WHERE status = $1."
+            }
+        },
+        {
+            "id": "page-two",
+            "title": "Navigate to page 2",
+            "conceptNote": "Pagination and filtering work together — the server first filters by your criteria, then paginates the filtered results. Order matters!",
+            "instruction": "Change 'page' to '2' while keeping the status filter. If there are enough matching orders, you'll see the second page; otherwise an empty array.",
+            "expected": {
+                "status": 200,
+                "method": "GET"
+            },
+            "hint": "Change the 'page' query parameter to '2'.",
+            "reasoning": {
+                "whyCorrect": "Pagination and filtering compose together. The server first filters (WHERE status='pending'), then paginates the filtered results. The order matters — filter first, paginate second.",
+                "whyNotAlternative": "Paginating first and filtering second would give wrong results — you'd skip records that match the filter on previous pages. This is a common backend bug: applying filters in application code AFTER the database returns a paginated slice.",
+                "realWorldNote": "Empty arrays for out-of-range pages should return 200 with an empty data array, not 404. 404 means 'this endpoint doesn't exist,' not 'no results found.' An empty array IS a valid response."
+            }
+        },
+        {
+            "id": "invalid-status",
+            "title": "Try an invalid status filter",
+            "conceptNote": "Servers should validate filter values against an allowlist — accepting unknown values silently could leak unfiltered data.",
+            "instruction": "Change 'status' to 'unknown' — a value the server doesn't recognize. You should get a 400 error explaining the valid options.",
+            "expected": {
+                "status": 400,
+                "method": "GET"
+            },
+            "hint": "Set the 'status' query parameter to 'unknown'.",
+            "reasoning": {
+                "whyCorrect": "400 Bad Request is correct for invalid query parameter values. The error response should list the valid options (paid, pending, shipped) so the client knows exactly how to fix the request.",
+                "whyNotAlternative": "Returning 200 with an empty array would be wrong — the client can't distinguish 'no results match' from 'invalid filter.' Silently ignoring unknown filters is dangerous — a typo like 'stauts=paid' would return all orders without filtering, which could be a data leak.",
+                "realWorldNote": "Include valid enum values in the error message. Example: { error: 'INVALID_FILTER', message: 'Invalid status. Valid values: paid, pending, shipped', field: 'status' }. This is self-documenting error design."
+            }
+        },
+        {
+            "id": "missing-pagination",
+            "title": "Omit pagination parameters",
+            "conceptNote": "Requiring pagination prevents disastrous 'SELECT *' queries — without limits, a client could accidentally fetch millions of records.",
+            "instruction": "Remove the 'page' and 'limit' parameters (keep only 'status'). The server returns 400 — it requires explicit pagination to prevent unbounded queries.",
+            "expected": {
+                "status": 400,
+                "method": "GET"
+            },
+            "hint": "Delete the 'page' and 'limit' rows, leaving only the status filter.",
+            "reasoning": {
+                "whyCorrect": "Requiring pagination prevents 'SELECT * FROM orders' scenarios. Without limits, a client could accidentally fetch millions of records, crashing both the server (memory) and the client (rendering).",
+                "whyNotAlternative": "Some APIs default to page=1&limit=20 when omitted. This is a valid design choice but carries risk: new developers might not realize they're only seeing partial data. Requiring explicit pagination is safer — it forces developers to think about data volume.",
+                "realWorldNote": "Even with pagination, enforce a maximum limit (e.g., limit ≤ 100). Without it, a client could set limit=1000000 and bypass your pagination protection entirely."
+            }
+        },
+        {
+            "id": "restore-success",
+            "title": "Fix and complete successfully",
+            "conceptNote": "A well-designed list endpoint always needs three things: what to filter by, which page, and how many per page.",
+            "instruction": "Restore page=1, limit=5, and status=paid. Confirm you get 200 with the first page of paid orders.",
+            "expected": {
+                "status": 200,
+                "method": "GET"
+            },
+            "hint": "Set query parameters: page=1, limit=5, status=paid",
+            "reasoning": {
+                "whyCorrect": "This confirms the full pattern: filter + paginate + validate. The request precisely describes what data the client wants, and the server returns exactly that slice with metadata for navigation.",
+                "whyNotAlternative": "If pagination metadata was missing, the client would have no way to know how many pages exist, making it impossible to build a proper UI. Always return: currentPage, totalPages, total count, and page size.",
+                "realWorldNote": "Consider adding a 'Link' header with prev/next page URLs (RFC 5988). GitHub's API does this: Link: <https://api.github.com/users?page=3>; rel=\"next\". This makes pagination self-discoverable without parsing the response body."
+            }
+        }
+    ],
+    "tradeoffCards": [
+        {
+            "id": "offset-vs-cursor",
+            "title": "Offset Pagination vs Cursor Pagination",
+            "optionA": {
+                "label": "Offset (page/limit)",
+                "pros": [
+                    "Simple to implement (LIMIT/OFFSET in SQL)",
+                    "Clients can jump to any page directly",
+                    "Easy to show total page count and 'Page X of Y' UI"
+                ],
+                "cons": [
+                    "Slow for deep pages (OFFSET 100000 scans 100K rows first)",
+                    "Inconsistent with real-time data (inserts shift pages)",
+                    "Duplicate or missing records when data changes between requests"
+                ]
+            },
+            "optionB": {
+                "label": "Cursor (after/before)",
+                "pros": [
+                    "Consistent performance regardless of depth (O(1) seek)",
+                    "No duplicates or missed records — cursor is a stable pointer",
+                    "Works well with real-time feeds and streaming data"
+                ],
+                "cons": [
+                    "Cannot jump to arbitrary page (no 'go to page 50')",
+                    "More complex to implement (need a monotonic cursor field)",
+                    "Total count is expensive to compute (no easy 'Page X of Y')"
+                ]
+            },
+            "whenToChoose": {
+                "a": "Use offset pagination for admin dashboards, internal tools, or small datasets where users need to jump to specific pages and the total count matters.",
+                "b": "Use cursor pagination for feeds, timelines, chat messages, or any dataset that changes frequently. If you see 'Load More' instead of page numbers, that's cursor pagination."
+            },
+            "failureScenario": "A social media feed uses offset pagination. While the user is on page 1, a new post is inserted at the top. When they navigate to page 2, the post that was previously last on page 1 now appears first on page 2 — a duplicate. Cursor pagination avoids this because the cursor points to a specific record, not a position."
+        },
+        {
+            "id": "server-vs-client-filtering",
+            "title": "Server-Side vs Client-Side Filtering",
+            "optionA": {
+                "label": "Server-Side Filtering",
+                "pros": [
+                    "Database does the heavy lifting (indexed WHERE clauses)",
+                    "Only sends matching records over the network",
+                    "Works with any dataset size (millions of records)"
+                ],
+                "cons": [
+                    "Requires API parameter design for each filter",
+                    "Server must validate and sanitize filter values",
+                    "Complex filters require careful SQL query building"
+                ]
+            },
+            "optionB": {
+                "label": "Client-Side Filtering",
+                "pros": [
+                    "Instant filtering — no network round-trip",
+                    "Simple to implement (just array.filter() in JS)",
+                    "Works offline once data is loaded"
+                ],
+                "cons": [
+                    "Must load ALL data upfront (memory-intensive)",
+                    "Network waste — sends data the user doesn't need",
+                    "Breaks completely with large datasets (100K+ records)"
+                ]
+            },
+            "whenToChoose": {
+                "a": "Always filter server-side for datasets larger than ~1000 records, or when the dataset grows over time. This is the default choice for production APIs.",
+                "b": "Client-side filtering is acceptable for small, static datasets (dropdown options, config values, category lists) already loaded in memory."
+            },
+            "failureScenario": "An e-commerce site loads ALL 50,000 products to the frontend and filters with JavaScript. On mobile, this uses 200MB of RAM, takes 10 seconds to load, and crashes on older devices. Server-side filtering with pagination would send only 20 matching products per page."
+        }
+    ],
+    "sandboxPrompts": [
+        {
+            "prompt": "Try setting limit to 100 — does the server cap it?",
+            "hint": "Production APIs usually enforce a maximum page size to protect server resources."
+        },
+        {
+            "prompt": "What happens with status=shipped?",
+            "hint": "There might be more valid status values than paid and pending."
+        },
+        {
+            "prompt": "Try removing only 'page' but keep 'limit' and 'status'",
+            "hint": "Does the server require BOTH pagination params or just one?"
+        },
+        {
+            "prompt": "What if you set page to 999?",
+            "hint": "Out-of-range pages should return 200 with empty data, not 404."
+        }
+    ],
+    "takeaways": [
+        "Pagination metadata (total, totalPages, currentPage) helps clients build navigation UIs — the server does the counting",
+        "Filter parameters should be validated server-side with clear error messages listing allowed values",
+        "Requiring pagination parameters prevents accidental 'SELECT * FROM orders' situations that can crash both server and client"
+    ],
+    "interviewNotes": [
+        "Offset pagination (page/limit) is simple but slow for deep pages — the DB still scans all preceding rows. Cursor-based pagination is O(1) for any page",
+        "Filtering should happen in the database query (WHERE clause), not in application code — filtering 1M records in Node.js is a terrible idea",
+        "Consider rate limiting on list endpoints — even with pagination, a client hammering page after page can overwhelm the server"
+    ],
+    "interviewExplanation": "When building list endpoints, I always implement pagination and filtering together. Pagination uses page and limit parameters — the server calculates the offset (page-1)*limit and returns that slice of data along with metadata like total count and total pages. For filtering, I validate allowed filter values server-side (e.g., status must be one of pending, paid, shipped) and translate them into database WHERE clauses. I never let clients fetch unbounded lists — every list endpoint requires pagination parameters. For high-traffic APIs, I prefer cursor-based pagination over offset-based because it performs consistently regardless of how deep into the dataset you are.",
+    "allowedMethods": [
+        "GET"
+    ],
+    "defaultRequest": {
+        "method": "GET",
+        "path": "/orders",
+        "headers": {
+            "Accept": "application/json"
+        },
+        "query": {
+            "page": "1",
+            "limit": "5",
+            "status": "paid"
+        },
+        "body": ""
+    },
+    "breakItMistakes": [
+        {
+            "label": "Invalid status filter",
+            "tooltip": "Using an unknown status value causes a 400 error",
+            "apply": {
+                "setQuery": {
+                    "page": "1",
+                    "limit": "5",
+                    "status": "unknown"
+                }
+            }
+        },
+        {
+            "label": "Missing pagination",
+            "tooltip": "Omitting page/limit triggers a 400 error",
+            "apply": {
+                "setQuery": {
+                    "status": "paid"
+                }
+            }
+        }
+    ]
+}

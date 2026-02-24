@@ -1,0 +1,367 @@
+{
+    "id": "social-feed",
+    "title": "Design a Social Media Feed API",
+    "difficulty": "Hard",
+    "timeLimitMinutes": 30,
+    "problemStatement": "Design a RESTful API for a social media feed. Users create posts, follow users, view their timeline, and like posts.",
+    "resourceSchema": [
+        {
+            "field": "postId",
+            "type": "string (UUID)",
+            "required": true,
+            "constraints": "Auto-generated"
+        },
+        {
+            "field": "authorId",
+            "type": "string",
+            "required": true
+        },
+        {
+            "field": "content",
+            "type": "string",
+            "required": true,
+            "constraints": "Max 1000 characters"
+        },
+        {
+            "field": "likeCount",
+            "type": "integer",
+            "required": true,
+            "constraints": "Calculated server-side"
+        },
+        {
+            "field": "createdAt",
+            "type": "ISO 8601 datetime",
+            "required": true
+        },
+        {
+            "field": "follow.followerId",
+            "type": "string",
+            "required": true
+        },
+        {
+            "field": "follow.followeeId",
+            "type": "string",
+            "required": true
+        }
+    ],
+    "functionalRequirements": [
+        "Create and delete posts",
+        "Follow and unfollow users",
+        "Get personalized feed",
+        "Like and unlike posts",
+        "Get user profile with follower counts",
+        "Search posts by keyword",
+        "Get trending posts"
+    ],
+    "constraints": [
+        "Feed only shows posts from followed users",
+        "Cannot follow yourself",
+        "Cannot like the same post twice",
+        "Posts are immutable",
+        "Feed uses cursor-based pagination"
+    ],
+    "rubric": [
+        {
+            "category": "Endpoint Coverage",
+            "maxPoints": 20,
+            "criteria": [
+                "POST /posts",
+                "DELETE /posts/:id",
+                "GET /feed",
+                "POST /users/:id/follow",
+                "DELETE /users/:id/follow",
+                "POST /posts/:id/like",
+                "DELETE /posts/:id/like",
+                "GET /users/:id",
+                "GET /search/posts",
+                "GET /trending"
+            ],
+            "reasoning": "Ten endpoints span posts, social graph (follow/unfollow), engagement (like/unlike), discovery (search/trending), and profiles. The /feed endpoint is the most complex — it aggregates posts from followed users."
+        },
+        {
+            "category": "HTTP Methods",
+            "maxPoints": 10,
+            "criteria": [
+                "POST for follow/like, DELETE for unfollow/unlike"
+            ],
+            "reasoning": "Follow and like are actions that create resources (a follow relationship, a like record). POST to create, DELETE to remove. Using PUT would imply updating an existing like, which doesn't make sense — you either like something or you don't."
+        },
+        {
+            "category": "Status Codes",
+            "maxPoints": 15,
+            "criteria": [
+                "200, 201, 204, 400, 401, 404, 409"
+            ],
+            "reasoning": "409 Conflict for 'already following' and 'already liked' is more precise than 400. It tells the client: your request is valid, but the state already exists. The client can handle this gracefully (e.g., toggle the button state)."
+        },
+        {
+            "category": "Error Handling",
+            "maxPoints": 15,
+            "criteria": [
+                "Cannot follow self",
+                "Already following",
+                "Already liked",
+                "Post not found"
+            ],
+            "reasoning": "Self-follow prevention is a business rule that needs explicit handling. Return 400 (not 409) because it's an invalid request, not a conflict. 'Already liked' returns 409 because the like already exists as a separate resource."
+        },
+        {
+            "category": "Authentication",
+            "maxPoints": 10,
+            "criteria": [
+                "Auth for write operations"
+            ],
+            "reasoning": "User profiles and post search can be public (maximizes discoverability). Feed, follow, like, and post creation require auth. The /trending endpoint is often public to attract new users."
+        },
+        {
+            "category": "Pagination",
+            "maxPoints": 15,
+            "criteria": [
+                "Cursor-based for feed and search"
+            ],
+            "reasoning": "Feed MUST use cursor-based pagination. New posts arrive constantly — offset pagination would show duplicates (same post on page 1 and page 2 as content shifts). Cursor says 'show me posts after this timestamp/ID' which is stable."
+        },
+        {
+            "category": "Query Parameters",
+            "maxPoints": 10,
+            "criteria": [
+                "Search keyword",
+                "Feed cursor",
+                "Time range"
+            ],
+            "reasoning": "Search uses ?q=keyword with cursor pagination. Feed uses ?cursor=xyz&limit=20. Time range (?from=2024-01-01) lets users explore historical content. All three compose: search within a time range."
+        },
+        {
+            "category": "Request/Response Design",
+            "maxPoints": 5,
+            "criteria": [
+                "Like count and liked-by-me flag"
+            ],
+            "reasoning": "Including likeCount AND isLikedByMe in each post avoids N+1 queries. Without isLikedByMe, the client would need to call a separate endpoint for each post to check if the user liked it. This is a critical UX optimization."
+        }
+    ],
+    "defendQuestions": [
+        {
+            "id": "fan-out-on-write-vs-read",
+            "question": "How would you generate the /feed endpoint at scale? Would you assemble it in real-time or pre-compute it?",
+            "modelReasoning": "Two approaches: (1) Fan-out on read: when a user requests their feed, query all followed users' posts and merge/sort in real-time. Simple but slow for users following thousands of people. (2) Fan-out on write: when a user creates a post, immediately copy it to all followers' feed caches. Fast reads but expensive writes (a celebrity with 1M followers generates 1M cache writes). Twitter/X uses a hybrid: fan-out on write for regular users, fan-out on read for celebrities. Instagram pre-computes feeds."
+        },
+        {
+            "id": "like-counter-accuracy",
+            "question": "A post gets 10,000 likes per minute. How do you keep the like count accurate without creating a database bottleneck?",
+            "modelReasoning": "Direct SQL UPDATE posts SET likes = likes + 1 creates lock contention at scale. Solutions: (1) Counter cache with periodic flush — increment in Redis, flush to database every 30 seconds. (2) Approximate counts — show '~10K likes' instead of exact counts (Facebook does this). (3) Separate likes table with periodic aggregation. For most apps, Redis counter + periodic DB sync is the best balance. Exact counts matter less than you'd think — users can't tell the difference between 9,847 and 9,850."
+        },
+        {
+            "id": "soft-delete-posts",
+            "question": "When a user deletes a post that has 500 likes and 200 comments, what happens to all that associated data?",
+            "modelReasoning": "Hard delete cascades to likes and comments — simple but permanent data loss. Soft delete (mark post as deleted, hide from feeds) preserves analytics and allows undo. But: GDPR/privacy requires actually deleting user data upon request, not just hiding it. Best practice: soft delete with a grace period (30 days), then hard delete in a background job. During the grace period, the post is invisible but recoverable. Likes and comments should also be soft-deleted and cleaned up with the post."
+        }
+    ],
+    "modelSolution": {
+        "endpoints": [
+            {
+                "method": "POST",
+                "path": "/posts",
+                "description": "Create a new post",
+                "headers": [
+                    "Authorization",
+                    "Content-Type"
+                ],
+                "requestBody": {
+                    "content": "string"
+                },
+                "responseBody": {
+                    "id": "string",
+                    "content": "string",
+                    "likes": 0,
+                    "createdAt": "ISO8601"
+                },
+                "statusCodes": [
+                    201,
+                    400,
+                    401
+                ],
+                "errorCases": [
+                    "Empty content",
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "DELETE",
+                "path": "/posts/:id",
+                "description": "Delete own post",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    204,
+                    401,
+                    403,
+                    404
+                ],
+                "errorCases": [
+                    "Post not found",
+                    "Not the author"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/feed",
+                "description": "Get personalized feed",
+                "headers": [
+                    "Authorization"
+                ],
+                "queryParams": [
+                    "cursor",
+                    "limit"
+                ],
+                "responseBody": {
+                    "data": [],
+                    "nextCursor": "string",
+                    "hasMore": true
+                },
+                "statusCodes": [
+                    200,
+                    401
+                ],
+                "errorCases": [
+                    "Missing or invalid token"
+                ]
+            },
+            {
+                "method": "POST",
+                "path": "/users/:id/follow",
+                "description": "Follow a user",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    201,
+                    400,
+                    401,
+                    404,
+                    409
+                ],
+                "errorCases": [
+                    "Cannot follow yourself",
+                    "Already following",
+                    "User not found"
+                ]
+            },
+            {
+                "method": "DELETE",
+                "path": "/users/:id/follow",
+                "description": "Unfollow a user",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    204,
+                    401,
+                    404
+                ],
+                "errorCases": [
+                    "Not following this user",
+                    "User not found"
+                ]
+            },
+            {
+                "method": "POST",
+                "path": "/posts/:id/like",
+                "description": "Like a post",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    201,
+                    401,
+                    404,
+                    409
+                ],
+                "errorCases": [
+                    "Post not found",
+                    "Already liked"
+                ]
+            },
+            {
+                "method": "DELETE",
+                "path": "/posts/:id/like",
+                "description": "Unlike a post",
+                "headers": [
+                    "Authorization"
+                ],
+                "statusCodes": [
+                    204,
+                    401,
+                    404
+                ],
+                "errorCases": [
+                    "Post not found",
+                    "Not liked"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/users/:id",
+                "description": "Get user profile with counts",
+                "responseBody": {
+                    "id": "string",
+                    "name": "string",
+                    "followers": 0,
+                    "following": 0,
+                    "postCount": 0
+                },
+                "statusCodes": [
+                    200,
+                    404
+                ],
+                "errorCases": [
+                    "User not found"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/search/posts",
+                "description": "Search posts",
+                "queryParams": [
+                    "q",
+                    "cursor",
+                    "limit"
+                ],
+                "responseBody": {
+                    "data": [],
+                    "nextCursor": "string",
+                    "hasMore": true
+                },
+                "statusCodes": [
+                    200,
+                    400
+                ],
+                "errorCases": [
+                    "Missing search query"
+                ]
+            },
+            {
+                "method": "GET",
+                "path": "/trending",
+                "description": "Get trending posts",
+                "queryParams": [
+                    "limit"
+                ],
+                "responseBody": {
+                    "data": []
+                },
+                "statusCodes": [
+                    200
+                ],
+                "errorCases": []
+            }
+        ],
+        "designNotes": [
+            "Follow/like are actions — POST to create, DELETE to remove",
+            "Use 409 Conflict for already following/liked",
+            "Cursor-based pagination for feed is essential",
+            "Include isLikedByMe flag in post responses"
+        ]
+    }
+}
