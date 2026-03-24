@@ -71,19 +71,31 @@ export function useLessonState(lessonId: string): LessonState {
         setResponse(null);
         setBreakItOn(false);
 
+        // Don't set request until lessons are loaded — otherwise we'd
+        // fall through to the initial { method: 'GET' } default and
+        // save it to localStorage, overriding the lesson's real default.
+        if (lessons.length === 0) return;
+
+        const lesson = lessons.find(l => l.lessonId === lessonId);
+
         try {
             const saved = localStorage.getItem('api-lab-requests');
             if (saved) {
                 const map = JSON.parse(saved) as Record<string, RequestState>;
-                if (map[lessonId]) {
-                    setRequest(map[lessonId]);
-                    return;
+                const savedReq = map[lessonId];
+                if (savedReq) {
+                    // Validate that the saved method is still allowed by this lesson
+                    if (lesson?.allowedMethods && !lesson.allowedMethods.includes(savedReq.method)) {
+                        // Saved method is stale/invalid — fall through to defaults
+                    } else {
+                        setRequest(savedReq);
+                        return;
+                    }
                 }
             }
         } catch { /* ignore */ }
 
         // Fallback to lesson defaults
-        const lesson = lessons.find(l => l.lessonId === lessonId);
         if (lesson) {
             setRequest({ ...lesson.defaultRequest });
         }

@@ -32,6 +32,13 @@ const FEATURES = [
         gradient: 'from-rose-500/20 to-pink-500/20',
         border: 'border-rose-500/20',
     },
+    {
+        icon: '⚡',
+        title: 'AI-Powered Sandbox',
+        desc: 'Send any request to any API — powered by AI that generates realistic responses and explains what happened.',
+        gradient: 'from-cyan-500/20 to-blue-500/20',
+        border: 'border-cyan-500/20',
+    },
 ];
 
 const STEPS = [
@@ -85,6 +92,14 @@ export default function LandingPage() {
                         <span className="text-base font-bold tracking-tight">API Learning Lab</span>
                     </div>
                     <div className="flex items-center gap-3">
+                        <Link href="/sandbox">
+                            <motion.span
+                                className="px-4 py-2 text-xs font-semibold text-cyan-400 hover:text-cyan-300 transition-colors"
+                                whileHover={{ y: -1 }}
+                            >
+                                ⚡ AI Sandbox
+                            </motion.span>
+                        </Link>
                         <Link href="/interview">
                             <motion.span
                                 className="px-4 py-2 text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
@@ -167,6 +182,15 @@ export default function LandingPage() {
                                 whileTap={{ scale: 0.98 }}
                             >
                                 <span className="text-lg">🎯</span> Interview Prep
+                            </motion.span>
+                        </Link>
+                        <Link href="/sandbox">
+                            <motion.span
+                                className="inline-flex items-center gap-2 px-8 py-4 text-sm font-bold rounded-xl bg-gradient-to-r from-cyan-600/20 to-blue-600/20 border border-cyan-500/30 text-cyan-400 hover:text-cyan-300 hover:border-cyan-500/50 transition-all cursor-pointer"
+                                whileHover={{ scale: 1.03, y: -2 }}
+                                whileTap={{ scale: 0.98 }}
+                            >
+                                <span className="text-lg">🧪</span> AI Sandbox
                             </motion.span>
                         </Link>
                     </motion.div>

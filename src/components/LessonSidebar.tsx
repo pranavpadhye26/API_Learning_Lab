@@ -72,6 +72,23 @@ export default function LessonSidebar({ lessons, activeLessonId, completedLesson
                 </Link>
             </div>
 
+            {/* AI Sandbox */}
+            <div className="px-3 pt-1.5">
+                <Link href="/sandbox">
+                    <motion.div
+                        className="w-full px-3 py-3 rounded-xl bg-gradient-to-r from-cyan-600/10 to-blue-600/10 border border-cyan-500/20 hover:border-cyan-500/40 hover:from-cyan-600/20 hover:to-blue-600/20 transition-all flex items-center gap-2.5 group"
+                        whileHover={{ x: 2 }}
+                        whileTap={{ scale: 0.98 }}
+                    >
+                        <span className="text-base">⚡</span>
+                        <div>
+                            <span className="text-sm font-semibold text-cyan-400 group-hover:text-cyan-300 transition-colors">AI Sandbox</span>
+                            <p className="text-[10px] text-[var(--text-muted)]">Free-form AI-powered playground</p>
+                        </div>
+                    </motion.div>
+                </Link>
+            </div>
+
             {/* Lessons */}
             <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
                 {Object.entries(grouped).map(([category, categoryLessons]) => (
